@@ -12,13 +12,13 @@ const GAP = 3;
 const PITCH = CELL + GAP;      // 19
 const R = 3;                   // corner radius
 const OX = 42;                 // grid origin: room for Mon/Wed/Fri on the left
-const OY = 52;                 //              room for month labels on top
+const OY = 58;                 //              room for month labels on top
 const PAD_R = 22;
-const PAD_B = 62;              // legend strip
+const PAD_B = 66;              // legend strip
 const FONT = "'Patrick Hand', cursive";
 
-const BLADES = [0, 3, 5, 7, 9];
-const HEIGHT = [0, 5, 8, 11, 14];
+const BLADES = [0, 3, 5, 7, 10];
+const HEIGHT = [0, 6, 10, 13, 17];
 
 export class Renderer2D {
   constructor(canvas, lawn) {
@@ -108,7 +108,7 @@ export class Renderer2D {
     const over = tileColor(cell.level, season, true);
     const t = cell.mowed ? Math.min(1, cell.mowT * 1.4) : 0;
     let fill = cell.level === 0 ? under : mix(under, over, t);
-    if (cell.mowed && cell.level > 0 && cell.col % 2 === 0) fill = mix(fill, stripe(fill), t);
+    if (cell.mowed && cell.level > 0 && cell.col % 2 === 0) fill = mix(fill, stripe(fill), t * 0.75);
 
     ctx.fillStyle = fill;
     this.roundedPath(x, y, CELL, CELL, R, 0.7);
@@ -127,7 +127,7 @@ export class Renderer2D {
       }
     } else if (cell.mowed && t >= 1) {
       // the cut: two faint passes across the tile
-      ctx.strokeStyle = 'rgba(255,255,255,0.33)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.24)';
       ctx.lineWidth = 1;
       this.line(x + 2, y + 6, x + CELL - 2, y + 6, 0.5);
       this.line(x + 2, y + 11, x + CELL - 2, y + 11, 0.5);
@@ -162,7 +162,7 @@ export class Renderer2D {
     const base = y + CELL - 1;
     const spread = (cell.level >= 3 ? CELL * 0.68 : CELL * 0.44) * scale;
     const color = bladeColor(cell.level, season);
-    const w = 1.2 + cell.level * 0.16;
+    const w = 1.25 + cell.level * 0.22;
     ctx.lineCap = 'round';
 
     for (let i = 0; i < n; i++) {
@@ -183,7 +183,8 @@ export class Renderer2D {
 
   // --- events -----------------------------------------------------------
 
-  onMowed(indices) {
+  /** @param quiet true for the end-card confetti: clippings only, no label. */
+  onMowed(indices, quiet) {
     const { lawn } = this;
     const m = lawn.mower;
     let sum = 0;
@@ -206,6 +207,7 @@ export class Renderer2D {
         });
       }
     }
+    if (quiet) return;
     const last = lawn.cells[lawn.lastMowed];
     if (last) {
       this.tag.text = describeCell(last);
@@ -213,7 +215,13 @@ export class Renderer2D {
       if (!this.tag.x) { this.tag.x = this.px(m.x); this.tag.y = this.py(m.z); }
     }
     if (sum > 0) {
-      this.popups.push({ x: this.px(m.x), y: this.py(m.z) - 10, n: sum, t: 0 });
+      // stagger, so a burst of labels does not stack into one blob
+      const j = this.popups.length % 3;
+      this.popups.push({
+        x: this.px(m.x) + (j - 1) * 20,
+        y: this.py(m.z) - 10 - j * 9,
+        n: sum, t: 0,
+      });
     }
   }
 
@@ -306,11 +314,12 @@ export class Renderer2D {
       p.t += dt / 0.7;
       if (p.t >= 1) { this.popups.splice(i, 1); continue; }
       const a = p.t < 0.7 ? 1 : 1 - (p.t - 0.7) / 0.3;
-      ctx.font = `22px ${FONT}`;
-      ctx.fillStyle = `rgba(251,249,242,${a * 0.85})`;
-      ctx.fillText('+' + p.n, p.x + 1, p.y - p.t * 18 + 1);
+      ctx.font = `26px ${FONT}`;
+      ctx.lineWidth = 4; ctx.lineJoin = 'round';
+      ctx.strokeStyle = `rgba(251,249,242,${a * 0.95})`;
+      ctx.strokeText('+' + p.n, p.x, p.y - 8 - p.t * 26);
       ctx.fillStyle = `rgba(44,44,42,${a})`;
-      ctx.fillText('+' + p.n, p.x, p.y - p.t * 18);
+      ctx.fillText('+' + p.n, p.x, p.y - 8 - p.t * 26);
     }
     ctx.textAlign = 'left';
   }
@@ -321,8 +330,8 @@ export class Renderer2D {
     if (this.tag.life <= 0 || !this.tag.text) return;
     this.tag.life -= dt;
     const m = lawn.mower;
-    const tx = this.px(m.x) + 26;
-    const ty = this.py(m.z) - 30;
+    const tx = this.px(m.x) + 22;
+    const ty = this.py(m.z) + 20;
     this.tag.x += (tx - this.tag.x) * 0.14;
     this.tag.y += (ty - this.tag.y) * 0.14;
     const a = Math.min(1, this.tag.life * 2.5);
@@ -345,24 +354,26 @@ export class Renderer2D {
     ctx.globalAlpha = 1;
   }
 
+  /** The key doubles as a guide to how grass maps to contribution levels. */
   drawLegend() {
-    const { ctx, lawn } = this;
-    const y = OY + ROWS * PITCH + 26;
-    const right = OX + COLS * PITCH;
-    const x0 = right - 4 * PITCH - 76;
+    const { ctx } = this;
+    const y = OY + ROWS * PITCH + 28;
+    const right = OX + COLS * PITCH - GAP;
     ctx.font = `15px ${FONT}`;
-    ctx.fillStyle = PENCIL;
     ctx.textBaseline = 'middle';
-    ctx.fillText('less', x0 - 34, y + CELL / 2 + 1);
+    const wMore = ctx.measureText('more').width;
+    const wLess = ctx.measureText('less').width;
+    const x0 = right - wMore - 16 - (4 * PITCH - GAP);
+    ctx.fillStyle = PENCIL;
+    ctx.fillText('less', x0 - wLess - 16, y + CELL / 2 + 1);
+    ctx.fillText('more', right - wMore, y + CELL / 2 + 1);
     for (let l = 1; l <= 4; l++) {
       this.seed = l * 977 + this.boil * 17 + 3;
       const x = x0 + (l - 1) * PITCH;
       const fake = { col: l, row: 0, level: l, mowed: false, mowT: 0, count: 0 };
       this.drawTile(x, y, fake, 2);
-      this.drawGrass(x, y, fake, 2, 0.78);
+      this.drawGrass(x, y, fake, 2, 0.8);
     }
-    ctx.fillStyle = PENCIL;
-    ctx.fillText('more', right - 30, y + CELL / 2 + 1);
   }
 
   // --- frame ------------------------------------------------------------
@@ -383,27 +394,19 @@ export class Renderer2D {
     ctx.font = `16px ${FONT}`;
     ctx.fillStyle = PENCIL;
     ctx.textBaseline = 'alphabetic';
-    let lastX = -99;
-    for (const ms of lawn.monthStarts) {
-      const x = this.tileX(ms.col);
-      if (x - lastX < 26) continue;
-      lastX = x;
-      ctx.fillText(MONTH_NAMES[ms.month].slice(0, 3), x, OY - 20);
+    for (let i = 0; i < lawn.monthStarts.length; i++) {
+      const ms = lawn.monthStarts[i];
+      const next = lawn.monthStarts[i + 1];
+      // GitHub skips a month that only owns a column or two at either end
+      if (((next ? next.col : COLS) - ms.col) < 3) continue;
+      ctx.fillText(MONTH_NAMES[ms.month].slice(0, 3), this.tileX(ms.col), OY - 22);
     }
-
-    // weekday labels down the left
-    ctx.font = `15px ${FONT}`;
-    ctx.textBaseline = 'middle';
-    ['Mon', 'Wed', 'Fri'].forEach((d, i) => {
-      ctx.fillText(d, 4, this.tileY(1 + i * 2) + CELL / 2 + 1);
-    });
-    ctx.textBaseline = 'alphabetic';
 
     // fence ticks + rule above the grid
     ctx.strokeStyle = PENCIL; ctx.lineWidth = 1.1;
     const gw = COLS * PITCH - GAP;
-    for (let f = 0; f <= gw / 14; f++) this.line(OX + f * 14, OY - 15, OX + f * 14, OY - 8, 0.7);
-    this.line(OX, OY - 11, OX + gw, OY - 11, 0.8);
+    for (let f = 0; f <= gw / 14; f++) this.line(OX + f * 14, OY - 16, OX + f * 14, OY - 9, 0.7);
+    this.line(OX, OY - 12, OX + gw, OY - 12, 0.8);
 
     // dirt bed under the tiles
     ctx.fillStyle = mix(DIRT, PAPER, 0.62);
@@ -456,6 +459,15 @@ export class Renderer2D {
       ctx.fillRect(q.x, q.y, q.s, q.s);
       ctx.globalAlpha = 1;
     }
+
+    // weekday labels last, so the parked mower never sits on top of them
+    ctx.font = `15px ${FONT}`;
+    ctx.fillStyle = PENCIL;
+    ctx.textBaseline = 'middle';
+    ['Mon', 'Wed', 'Fri'].forEach((d, i) => {
+      ctx.fillText(d, 4, this.tileY(1 + i * 2) + CELL / 2 + 1);
+    });
+    ctx.textBaseline = 'alphabetic';
 
     this.drawPopups(dt);
     this.drawTag(dt);
