@@ -1,52 +1,182 @@
-import { createLawn, resetLawn, tick, progress, monthAt, MONTH_NAMES } from './core/lawn.js';
+import {
+  createLawn, resetLawn, tick, progress, monthAt, describeCell, formatTime,
+  MONTH_NAMES, COLS, DEFAULT_SEED,
+} from './core/lawn.js';
 import { Renderer2D } from './render2d/index.js';
 import { Renderer3D } from './render3d/index.js';
 
-const lawn = createLawn(null); // null = fake year; swap in parseContributions() output later
+const params = new URLSearchParams(location.search);
+const seed = Number(params.get('seed')) || DEFAULT_SEED;
+const autodrive = params.get('autodrive') === '1';
+
+// null = fake year; swap in alignToGrid(parseContributions(...)) for real data
+const lawn = createLawn(null, seed);
 
 const flat = new Renderer2D(document.getElementById('flat'), lawn);
 const deep = new Renderer3D(document.getElementById('deep'), lawn);
 const renderers = { flat, deep };
 let active = 'flat';
 
-const stage = document.getElementById('stage');
-const pctEl = document.getElementById('pct');
-const monEl = document.getElementById('month');
-const input = { up: false, down: false, left: false, right: false };
-const keymap = { ArrowUp: 'up', w: 'up', ArrowDown: 'down', s: 'down', ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right' };
+const $ = (id) => document.getElementById(id);
+const stage = $('stage');
+const tagEl = $('tag');
+const endcard = $('endcard');
+const camBtn = $('cam');
 
-stage.addEventListener('keydown', (e) => { const k = keymap[e.key]; if (k) { input[k] = true; e.preventDefault(); } });
+const input = { up: false, down: false, left: false, right: false };
+const keymap = {
+  ArrowUp: 'up', w: 'up', W: 'up',
+  ArrowDown: 'down', s: 'down', S: 'down',
+  ArrowLeft: 'left', a: 'left', A: 'left',
+  ArrowRight: 'right', d: 'right', D: 'right',
+};
+
+const nf = new Intl.NumberFormat('en-US');
+let tagUntil = 0;
+let endShown = false;
+let auto = 0;
+
+// --- input ---------------------------------------------------------------
+
+stage.addEventListener('keydown', (e) => {
+  const k = keymap[e.key];
+  if (k) { input[k] = true; e.preventDefault(); return; }
+  if (e.key === 'c' || e.key === 'C') { setCamera(deep.toggleCamera()); e.preventDefault(); }
+  if (e.key === 'r' || e.key === 'R') { regrow(); e.preventDefault(); }
+});
 stage.addEventListener('keyup', (e) => { const k = keymap[e.key]; if (k) input[k] = false; });
 stage.addEventListener('pointerdown', () => stage.focus());
+window.addEventListener('blur', () => { for (const k in input) input[k] = false; });
+
+for (const b of document.querySelectorAll('#pad button')) {
+  const key = b.dataset.key;
+  const on = (v) => (e) => {
+    e.preventDefault();
+    input[key] = v;
+    if (v) b.dataset.on = '1'; else delete b.dataset.on;
+    if (v) b.setPointerCapture && e.pointerId !== undefined && b.setPointerCapture(e.pointerId);
+  };
+  b.addEventListener('pointerdown', on(true));
+  b.addEventListener('pointerup', on(false));
+  b.addEventListener('pointercancel', on(false));
+  b.addEventListener('pointerleave', on(false));
+  b.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+// --- views ---------------------------------------------------------------
 
 for (const b of document.querySelectorAll('[data-view]')) {
   b.addEventListener('click', () => setView(b.dataset.view));
 }
-document.getElementById('regrow').addEventListener('click', () => {
-  resetLawn(lawn);
-  deep.applyLawn();
-});
+camBtn.addEventListener('click', () => setCamera(deep.toggleCamera()));
+$('regrow').addEventListener('click', regrow);
+$('regrow2').addEventListener('click', regrow);
+$('brag').addEventListener('click', copyBrag);
 
 function setView(name) {
   active = name;
   document.body.dataset.view = name;
-  for (const b of document.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', String(b.dataset.view === name));
+  for (const b of document.querySelectorAll('[data-view]')) {
+    b.setAttribute('aria-pressed', String(b.dataset.view === name));
+  }
+  camBtn.hidden = name !== 'deep';
   if (name === 'deep') deep.resize();
 }
 
+function setCamera(mode) {
+  camBtn.setAttribute('aria-pressed', String(!!mode));
+  camBtn.textContent = mode ? 'chase cam' : 'overview';
+}
+
+function regrow() {
+  resetLawn(lawn);
+  flat.reset();
+  deep.reset();
+  endcard.hidden = true;
+  tagEl.hidden = true;
+  endShown = false;
+  tagUntil = 0;
+  auto = 0;
+  stage.focus();
+}
+
+function copyBrag() {
+  const text = `I mowed my GitHub lawn: ${nf.format(lawn.totalContributions)} contributions`
+    + ` in ${formatTime(lawn.time)} - mow-your-commits`;
+  const btn = $('brag');
+  const done = () => { btn.textContent = 'copied!'; setTimeout(() => { btn.textContent = 'copy brag'; }, 1600); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, () => window.prompt('copy this', text));
+  } else {
+    window.prompt('copy this', text);
+  }
+}
+
+// --- HUD -----------------------------------------------------------------
+
+$('total').textContent = nf.format(lawn.totalContributions);
+$('ctotal').textContent = nf.format(lawn.totalContributions);
+setView(params.get('view') === 'deep' ? 'deep' : 'flat');
+setCamera(0);
+
+function updateHud(dt) {
+  $('pct').textContent = Math.round(progress(lawn) * 100) + '%';
+  $('month').textContent = MONTH_NAMES[monthAt(lawn, lawn.mower.x)];
+  $('cmowed').textContent = nf.format(lawn.mowedContributions);
+  $('timer').textContent = formatTime(lawn.time);
+
+  if (tagUntil > 0) {
+    tagUntil -= dt;
+    if (tagUntil <= 0) tagEl.hidden = true;
+  }
+
+  if (lawn.finished && !endShown) {
+    endShown = true;
+    $('endline').textContent = `${nf.format(lawn.totalContributions)} contributions`
+      + ` - ${COLS} weeks - ${formatTime(lawn.time)}`;
+    endcard.hidden = false;
+    confetti();
+  }
+}
+
+/** A short burst of clippings when the lawn is done. */
+function confetti() {
+  const cells = lawn.cells;
+  for (let k = 0; k < 26; k++) {
+    const i = Math.floor(Math.random() * cells.length);
+    flat.onMowed([i]);
+    if (k % 3 === 0) deep.onMowed([i]);
+  }
+}
+
 window.addEventListener('resize', () => deep.resize());
+
+// --- loop ----------------------------------------------------------------
 
 let last = performance.now();
 function frame(ts) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (ts - last) / 1000);
   last = ts;
+
+  if (autodrive && !lawn.finished) {
+    // Debug flag for screenshots: hold the gas and sweep back and forth.
+    auto += dt;
+    input.up = true;
+    input.right = auto > 3 && (auto % 3.4) < 0.62;
+  }
+
   const mowed = tick(lawn, input, dt);
-  if (mowed.length) { flat.onMowed(mowed); deep.onMowed(mowed); }
+  if (mowed.length) {
+    flat.onMowed(mowed);
+    deep.onMowed(mowed);
+    const cell = lawn.cells[lawn.lastMowed];
+    tagEl.textContent = describeCell(cell);
+    tagEl.hidden = false;
+    tagUntil = 2.5;
+  }
   renderers[active].draw(ts);
-  pctEl.textContent = Math.round(progress(lawn) * 100) + '%';
-  monEl.textContent = MONTH_NAMES[monthAt(lawn, lawn.mower.x)];
+  updateHud(dt);
 }
 
-setView('flat');
 requestAnimationFrame(frame);

@@ -3,42 +3,155 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>lawn</title>
+  <title>mow your commits</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap" rel="stylesheet" />
   <style>
-    :root { color-scheme: light; }
-    body { margin: 0; background: #FBF9F2; color: #2C2C2A; font-family: 'Patrick Hand', cursive; font-size: 18px; display: flex; flex-direction: column; align-items: center; padding: 32px 16px; gap: 12px; }
-    h1 { font-size: 28px; font-weight: 400; margin: 0; }
-    .bar { width: min(720px, 100%); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-    .bar span b { font-weight: 400; color: #27500A; }
-    #stage { width: min(720px, 100%); border: 2px solid #2C2C2A; border-radius: 12px; overflow: hidden; background: #FBF9F2; outline: none; cursor: pointer; }
+    :root {
+      color-scheme: light;
+      --ink: #2C2C2A;
+      --paper: #FBF9F2;
+      --cream: #FBF4DD;
+      --pencil: #75736D;
+      --green: #216E39;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--paper); color: var(--ink);
+      font-family: 'Patrick Hand', 'Comic Sans MS', cursive; font-size: 18px;
+      display: flex; flex-direction: column; align-items: center;
+      padding: 26px 16px 40px; gap: 10px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    h1 { font-size: 30px; font-weight: 400; margin: 0; display: flex; align-items: center; gap: 10px; }
+    h1 svg { display: block; }
+    .lede { margin: 0; font-size: 20px; color: var(--pencil); }
+    .lede b { font-weight: 400; color: var(--ink); }
+
+    .wrap { width: min(760px, 100%); display: flex; flex-direction: column; gap: 8px; }
+    .stats {
+      display: flex; flex-wrap: wrap; gap: 6px 20px; justify-content: space-between;
+      font-size: 17px; color: var(--pencil);
+    }
+    .stats b { font-weight: 400; color: var(--green); }
+
+    #stage {
+      position: relative; width: 100%;
+      border: 2px solid var(--ink); border-radius: 12px; overflow: hidden;
+      background: var(--paper); outline: none; cursor: crosshair;
+      touch-action: none;
+    }
     #stage:focus-visible { box-shadow: 0 0 0 3px #97C459; }
     canvas { display: block; width: 100%; }
-    #deep { height: 420px; }
+    #deep { height: 440px; }
     body[data-view="flat"] #deep, body[data-view="deep"] #flat { display: none; }
-    .controls { display: flex; gap: 8px; align-items: center; }
-    button { font: inherit; background: #FBF4DD; border: 2px solid #2C2C2A; border-radius: 8px; padding: 4px 14px; cursor: pointer; }
+
+    /* last mowed day, shared by both views */
+    #tag {
+      position: absolute; left: 10px; bottom: 10px; max-width: calc(100% - 20px);
+      background: var(--cream); border: 2px solid var(--ink); border-radius: 9px;
+      padding: 2px 12px 4px; font-size: 17px; line-height: 1.4;
+      transform: rotate(-0.6deg); pointer-events: none;
+      transition: opacity .25s;
+    }
+    #tag[hidden] { display: none; }
+
+    /* end card */
+    #endcard {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: rgba(251, 249, 242, .82); padding: 16px;
+    }
+    #endcard[hidden] { display: none; }
+    .card {
+      background: var(--cream); border: 3px solid var(--ink); border-radius: 16px;
+      padding: 18px 28px 22px; text-align: center; transform: rotate(-1deg);
+      box-shadow: 5px 6px 0 rgba(44, 44, 42, .18);
+    }
+    .card h2 { margin: 0 0 4px; font-size: 30px; font-weight: 400; }
+    .card p { margin: 0 0 14px; font-size: 19px; color: var(--pencil); }
+    .cardbtns { display: flex; gap: 10px; justify-content: center; }
+
+    .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; }
+    button {
+      font: inherit; background: var(--cream); border: 2px solid var(--ink);
+      border-radius: 9px; padding: 3px 14px 5px; cursor: pointer; color: inherit;
+    }
+    button:active { transform: translate(1px, 1px); }
     button[aria-pressed="true"] { background: #97C459; }
-    .hint { color: #888780; font-size: 15px; }
+    .hint { color: var(--pencil); font-size: 16px; }
+
+    /* on-screen pad for touch */
+    #pad {
+      display: none; width: min(760px, 100%);
+      justify-content: space-between; gap: 12px; margin-top: 4px;
+      touch-action: none; user-select: none; -webkit-user-select: none;
+    }
+    #pad .side { display: flex; gap: 10px; }
+    #pad button { width: 74px; height: 62px; font-size: 22px; border-radius: 14px; padding: 0; }
+    #pad button.gas { background: #97C459; }
+    #pad button[data-on="1"] { background: #D85A30; color: var(--cream); }
+    @media (pointer: coarse), (max-width: 760px) { #pad { display: flex; } }
+
     @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
   </style>
 </head>
 <body data-view="flat">
-  <h1>lawn</h1>
-  <div class="bar">
-    <span>driving through <b id="month">January</b></span>
-    <span>mowed <b id="pct">0%</b></span>
+  <h1>
+    <svg width="42" height="26" viewBox="0 0 42 26" fill="none" aria-hidden="true">
+      <path d="M9 18h18v-8H9z" fill="#D85A30" stroke="#2C2C2A" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M27 14h6M9 14 3 9" stroke="#2C2C2A" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="13" cy="20" r="3.2" fill="#2C2C2A"/>
+      <circle cx="24" cy="20" r="3.2" fill="#2C2C2A"/>
+      <path d="M33 19c0-4 3-6 6-6" stroke="#216E39" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    mow your commits
+  </h1>
+  <p class="lede"><b id="total">0</b> contributions in the last year</p>
+
+  <div class="wrap">
+    <div class="stats">
+      <span>driving through <b id="month">January</b></span>
+      <span>mowed <b id="pct">0%</b></span>
+      <span>contributions <b id="cmowed">0</b> / <b id="ctotal">0</b></span>
+      <span>time <b id="timer">0:00</b></span>
+    </div>
+
+    <div id="stage" tabindex="0" aria-label="Lawn. Click, then use WASD or arrow keys to drive the mower.">
+      <canvas id="flat"></canvas>
+      <canvas id="deep"></canvas>
+      <div id="tag" hidden></div>
+      <div id="endcard" hidden>
+        <div class="card">
+          <h2>Lawn mowed!</h2>
+          <p id="endline"></p>
+          <div class="cardbtns">
+            <button id="regrow2">regrow</button>
+            <button id="brag">copy brag</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
-  <div id="stage" tabindex="0" aria-label="Lawn. Click, then use WASD or arrow keys to drive the mower.">
-    <canvas id="flat"></canvas>
-    <canvas id="deep"></canvas>
-  </div>
+
   <div class="controls">
     <button data-view="flat" aria-pressed="true">flat</button>
     <button data-view="deep" aria-pressed="false">3D</button>
+    <button id="cam" hidden>overview</button>
     <button id="regrow">regrow</button>
-    <span class="hint">click the lawn, then WASD or arrows</span>
+    <span class="hint">click the lawn, then WASD or arrows &middot; C for the overview shot</span>
   </div>
+
+  <div id="pad">
+    <div class="side">
+      <button data-key="left" aria-label="left">&#9664;</button>
+      <button data-key="right" aria-label="right">&#9654;</button>
+    </div>
+    <div class="side">
+      <button data-key="down" aria-label="reverse">rev</button>
+      <button data-key="up" class="gas" aria-label="go">gas</button>
+    </div>
+  </div>
+
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
