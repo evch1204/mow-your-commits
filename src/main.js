@@ -1,6 +1,6 @@
 import {
-  createLawn, resetLawn, tick, progress, monthAt, describeCell, formatTime,
-  MONTH_NAMES, COLS, ROWS, DEFAULT_SEED,
+  createLawn, resetLawn, placeMower, tick, progress, monthAt, seasonIndexAt,
+  describeCell, formatTime, MONTH_NAMES, SEASON_WORD, ROWS, DEFAULT_SEED,
 } from './core/lawn.js';
 import { Renderer2D } from './render2d/index.js';
 import { Renderer3D } from './render3d/index.js';
@@ -8,11 +8,22 @@ import { Renderer3D } from './render3d/index.js';
 const params = new URLSearchParams(location.search);
 const seed = Number(params.get('seed')) || DEFAULT_SEED;
 const autodrive = params.get('autodrive') === '1';
+const finishNow = params.get('finish') === '1';   // debug: jump to the end card
+const startCol = params.has('start') ? Number(params.get('start')) : null;
+const startYaw = params.has('yaw') ? Number(params.get('yaw')) : 0;
+const startDist = params.has('dist') ? Number(params.get('dist')) : 0;
 const startCam = params.get('cam') === 'overview' ? 1 : 0;
-const finishNow = params.get('finish') === '1';   // debug: jump straight to the end card
 
-// null = fake year; swap in alignToGrid(parseContributions(...)) for real data
-const lawn = createLawn(null, seed);
+// Which years the picker offers. With real data this becomes the account's years.
+const THIS_YEAR = new Date().getFullYear();
+const YEARS = [null];
+for (let y = THIS_YEAR; y > THIS_YEAR - 6; y--) YEARS.push(y);
+
+const askedYear = params.has('year') ? Number(params.get('year')) : null;
+let year = YEARS.includes(askedYear) ? askedYear : null;
+
+// null year = rolling last 52 weeks; swap in daysForYear(...) for real data
+let lawn = createLawn(null, { seed, year });
 
 const flat = new Renderer2D(document.getElementById('flat'), lawn);
 const deep = new Renderer3D(document.getElementById('deep'), lawn);
@@ -24,6 +35,7 @@ const stage = $('stage');
 const tagEl = $('tag');
 const endcard = $('endcard');
 const camBtn = $('cam');
+const yearsEl = $('years');
 
 const input = { up: false, down: false, left: false, right: false };
 const keymap = {
@@ -54,9 +66,10 @@ for (const b of document.querySelectorAll('#pad button')) {
   const key = b.dataset.key;
   const on = (v) => (e) => {
     e.preventDefault();
+    e.stopPropagation();          // never reaches the 3D orbit handler
     input[key] = v;
     if (v) b.dataset.on = '1'; else delete b.dataset.on;
-    if (v) b.setPointerCapture && e.pointerId !== undefined && b.setPointerCapture(e.pointerId);
+    if (v && b.setPointerCapture && e.pointerId !== undefined) b.setPointerCapture(e.pointerId);
   };
   b.addEventListener('pointerdown', on(true));
   b.addEventListener('pointerup', on(false));
@@ -90,6 +103,55 @@ function setCamera(mode) {
   camBtn.textContent = mode ? 'chase cam' : 'overview';
 }
 
+// --- year picker ---------------------------------------------------------
+
+function labelFor(y) { return y === null ? 'last year' : String(y); }
+
+function buildYears() {
+  yearsEl.textContent = '';
+  for (const y of YEARS) {
+    const b = document.createElement('button');
+    b.textContent = labelFor(y);
+    b.setAttribute('aria-pressed', String(y === year));
+    b.addEventListener('click', () => pickYear(y));
+    yearsEl.appendChild(b);
+  }
+}
+
+function markYears() {
+  const kids = yearsEl.children;
+  for (let i = 0; i < kids.length; i++) {
+    kids[i].setAttribute('aria-pressed', String(YEARS[i] === year));
+  }
+}
+
+function pickYear(y) {
+  if (y === year) return;
+  year = y;
+  lawn = createLawn(null, { seed, year });
+  flat.setLawn(lawn);
+  deep.setLawn(lawn);
+  endcard.hidden = true;
+  tagEl.hidden = true;
+  endShown = false;
+  tagUntil = 0;
+  auto = 0;
+  markYears();
+  refreshTotals();
+  const url = new URL(location.href);
+  if (y === null) url.searchParams.delete('year'); else url.searchParams.set('year', String(y));
+  history.replaceState(null, '', url);
+  stage.focus();
+}
+
+function refreshTotals() {
+  $('total').textContent = nf.format(lawn.totalContributions);
+  $('ctotal').textContent = nf.format(lawn.totalContributions);
+  $('span').textContent = year === null ? 'in the last year' : 'in ' + year;
+}
+
+// --- actions -------------------------------------------------------------
+
 function regrow() {
   resetLawn(lawn);
   flat.reset();
@@ -103,8 +165,9 @@ function regrow() {
 }
 
 function copyBrag() {
+  const when = year === null ? 'this year' : String(year);
   const text = `I mowed my GitHub lawn: ${nf.format(lawn.totalContributions)} contributions`
-    + ` in ${formatTime(lawn.time)} - mow-your-commits`;
+    + ` from ${when} in ${formatTime(lawn.time)} - mow-your-commits`;
   const btn = $('brag');
   const done = () => { btn.textContent = 'copied!'; setTimeout(() => { btn.textContent = 'copy brag'; }, 1600); };
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -116,15 +179,19 @@ function copyBrag() {
 
 // --- HUD -----------------------------------------------------------------
 
-$('total').textContent = nf.format(lawn.totalContributions);
-$('ctotal').textContent = nf.format(lawn.totalContributions);
+buildYears();
+refreshTotals();
 setView(params.get('view') === 'deep' ? 'deep' : 'flat');
 deep.setCamera(startCam ? 'overview' : 'chase');
 setCamera(startCam);
+if (startYaw) deep.setOrbit(startYaw);
+if (startDist) deep.setDistance(startDist);
+if (startCol !== null && !Number.isNaN(startCol)) placeMower(lawn, startCol);
 
 function updateHud(dt) {
   $('pct').textContent = Math.round(progress(lawn) * 100) + '%';
   $('month').textContent = MONTH_NAMES[monthAt(lawn, lawn.mower.x)];
+  $('weather').textContent = SEASON_WORD[seasonIndexAt(lawn, lawn.mower.x)];
   $('cmowed').textContent = nf.format(lawn.mowedContributions);
   $('timer').textContent = formatTime(lawn.time);
 
@@ -136,7 +203,7 @@ function updateHud(dt) {
   if (lawn.finished && !endShown) {
     endShown = true;
     $('endline').textContent = `${nf.format(lawn.totalContributions)} contributions`
-      + ` - ${COLS} weeks - ${formatTime(lawn.time)}`;
+      + ` - ${lawn.cols} weeks - ${formatTime(lawn.time)}`;
     endcard.hidden = false;
     confetti();
   }
@@ -147,6 +214,7 @@ function confetti() {
   const cells = lawn.cells;
   for (let k = 0; k < 26; k++) {
     const i = Math.floor(Math.random() * cells.length);
+    if (cells[i].void) continue;
     flat.onMowed([i], true);
     if (k % 3 === 0) deep.onMowed([i], true);
   }
@@ -159,7 +227,7 @@ function followMower() {
   if (active !== 'flat') return;
   const over = stage.scrollWidth - stage.clientWidth;
   if (over <= 0) return;
-  const want = (lawn.mower.x / COLS) * stage.scrollWidth - stage.clientWidth / 2;
+  const want = (lawn.mower.x / lawn.cols) * stage.scrollWidth - stage.clientWidth / 2;
   stage.scrollLeft = Math.max(0, Math.min(over, want));
 }
 
@@ -168,9 +236,12 @@ function followMower() {
 function showMowed(indices) {
   flat.onMowed(indices);
   deep.onMowed(indices);
-  tagEl.textContent = describeCell(lawn.cells[lawn.lastMowed]);
-  tagEl.hidden = false;
-  tagUntil = 2.5;
+  const text = describeCell(lawn.cells[lawn.lastMowed]);
+  if (text) {
+    tagEl.textContent = text;
+    tagEl.hidden = false;
+    tagUntil = 2.5;
+  }
 }
 
 /**
@@ -205,7 +276,7 @@ function prewarmFinish() {
     lawn.mower.angle = 0;
     lawn.mower.vel = 0;
     let guard = 0;
-    while (lawn.mower.x < COLS + 1 && guard++ < 20000) tick(lawn, { up: true }, DT);
+    while (lawn.mower.x < lawn.cols + 1 && guard++ < 20000) tick(lawn, { up: true }, DT);
   }
   deep.applyLawn();
 }
