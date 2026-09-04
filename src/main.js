@@ -1,6 +1,6 @@
 import {
   createLawn, resetLawn, tick, progress, monthAt, describeCell, formatTime,
-  MONTH_NAMES, COLS, DEFAULT_SEED,
+  MONTH_NAMES, COLS, ROWS, DEFAULT_SEED,
 } from './core/lawn.js';
 import { Renderer2D } from './render2d/index.js';
 import { Renderer3D } from './render3d/index.js';
@@ -8,6 +8,8 @@ import { Renderer3D } from './render3d/index.js';
 const params = new URLSearchParams(location.search);
 const seed = Number(params.get('seed')) || DEFAULT_SEED;
 const autodrive = params.get('autodrive') === '1';
+const startCam = params.get('cam') === 'overview' ? 1 : 0;
+const finishNow = params.get('finish') === '1';   // debug: jump straight to the end card
 
 // null = fake year; swap in alignToGrid(parseContributions(...)) for real data
 const lawn = createLawn(null, seed);
@@ -117,7 +119,8 @@ function copyBrag() {
 $('total').textContent = nf.format(lawn.totalContributions);
 $('ctotal').textContent = nf.format(lawn.totalContributions);
 setView(params.get('view') === 'deep' ? 'deep' : 'flat');
-setCamera(0);
+deep.setCamera(startCam ? 'overview' : 'chase');
+setCamera(startCam);
 
 function updateHud(dt) {
   $('pct').textContent = Math.round(progress(lawn) * 100) + '%';
@@ -144,14 +147,71 @@ function confetti() {
   const cells = lawn.cells;
   for (let k = 0; k < 26; k++) {
     const i = Math.floor(Math.random() * cells.length);
-    flat.onMowed([i]);
-    if (k % 3 === 0) deep.onMowed([i]);
+    flat.onMowed([i], true);
+    if (k % 3 === 0) deep.onMowed([i], true);
   }
 }
 
 window.addEventListener('resize', () => deep.resize());
 
+/** On narrow screens the flat lawn scrolls sideways; keep the mower in frame. */
+function followMower() {
+  if (active !== 'flat') return;
+  const over = stage.scrollWidth - stage.clientWidth;
+  if (over <= 0) return;
+  const want = (lawn.mower.x / COLS) * stage.scrollWidth - stage.clientWidth / 2;
+  stage.scrollLeft = Math.max(0, Math.min(over, want));
+}
+
 // --- loop ----------------------------------------------------------------
+
+function showMowed(indices) {
+  flat.onMowed(indices);
+  deep.onMowed(indices);
+  tagEl.textContent = describeCell(lawn.cells[lawn.lastMowed]);
+  tagEl.hidden = false;
+  tagUntil = 2.5;
+}
+
+/**
+ * ?autodrive=1 : hold the gas for the first 3 seconds. Headless Chrome barely
+ * runs requestAnimationFrame under --virtual-time-budget, so those 3 seconds
+ * are stepped synchronously before the first paint; the screenshot then shows
+ * mowed tiles, clippings, the +N popup and the last-mowed tag.
+ */
+function prewarm(seconds) {
+  const DT = 1 / 60;
+  const steps = Math.round(seconds / DT);
+  let recent = [];
+  for (let i = 0; i < steps; i++) {
+    auto += DT;
+    input.up = true;
+    const mowed = tick(lawn, input, DT);
+    if (mowed.length) {
+      if (i > steps - 20) recent = recent.concat(mowed);
+      else recent.length = 0;
+    }
+  }
+  deep.applyLawn();
+  if (recent.length) showMowed(recent);
+}
+
+/** Debug: sweep every row before the first paint so the end card is on screen. */
+function prewarmFinish() {
+  const DT = 1 / 60;
+  for (let row = 0; row < ROWS; row++) {
+    lawn.mower.z = row + 0.5;
+    lawn.mower.x = -2;
+    lawn.mower.angle = 0;
+    lawn.mower.vel = 0;
+    let guard = 0;
+    while (lawn.mower.x < COLS + 1 && guard++ < 20000) tick(lawn, { up: true }, DT);
+  }
+  deep.applyLawn();
+}
+
+if (finishNow) prewarmFinish();
+else if (autodrive) prewarm(3);
 
 let last = performance.now();
 function frame(ts) {
@@ -160,23 +220,17 @@ function frame(ts) {
   last = ts;
 
   if (autodrive && !lawn.finished) {
-    // Debug flag for screenshots: hold the gas and sweep back and forth.
+    // keep sweeping so the demo never parks in an empty corner
     auto += dt;
     input.up = true;
     input.right = auto > 3 && (auto % 3.4) < 0.62;
   }
 
   const mowed = tick(lawn, input, dt);
-  if (mowed.length) {
-    flat.onMowed(mowed);
-    deep.onMowed(mowed);
-    const cell = lawn.cells[lawn.lastMowed];
-    tagEl.textContent = describeCell(cell);
-    tagEl.hidden = false;
-    tagUntil = 2.5;
-  }
+  if (mowed.length) showMowed(mowed);
   renderers[active].draw(ts);
   updateHud(dt);
+  followMower();
 }
 
 requestAnimationFrame(frame);
