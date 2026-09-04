@@ -32,7 +32,7 @@ const OVERGROWN = '#4E5A3C';
 
 /** Snow dusting on winter ground, and the pale blades that grow through it. */
 export const FROST = '#F2F5F7';
-export const WINTER_BLADE = ['', '#D2E2D7', '#BCD1C3', '#A4BDAE', '#8DA998'];
+export const WINTER_BLADE = ['', '#B4D5BF', '#8FC0A2', '#6EA484', '#4F8768'];
 /** A few blades in autumn columns go brown. */
 export const AUTUMN_BLADE = '#BA7517';
 /** Spring flowers. */
@@ -72,7 +72,7 @@ export function tileColor(level, season, mowed) {
   if (level <= 0) return season === 0 ? mix(g, FROST, 0.5) : g;
   // overgrown; and winter ground carries a snow dusting whatever the weather
   const over = shade(mix(g, OVERGROWN, 0.34), 0.82);
-  return season === 0 ? mix(over, FROST, 0.55) : over;
+  return season === 0 ? mix(over, FROST, 0.42) : over;
 }
 
 /** Multiply a hex colour brightness. */
