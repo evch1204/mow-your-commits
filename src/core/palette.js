@@ -30,6 +30,14 @@ export const SEASON_TINT = [
 /** Overgrown grass darkens and dulls the tile it is standing on. */
 const OVERGROWN = '#4E5A3C';
 
+/** Snow dusting on winter ground, and the pale blades that grow through it. */
+export const FROST = '#F2F5F7';
+export const WINTER_BLADE = ['', '#D2E2D7', '#BCD1C3', '#A4BDAE', '#8DA998'];
+/** A few blades in autumn columns go brown. */
+export const AUTUMN_BLADE = '#BA7517';
+/** Spring flowers. */
+export const FLOWERS = ['#F6C3D4', '#FFFDF5', '#F4D06F'];
+
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
@@ -60,8 +68,11 @@ export function levelGreen(level, season = 2) {
  */
 export function tileColor(level, season, mowed) {
   const g = levelGreen(level, season);
-  if (level <= 0 || mowed) return g;
-  return shade(mix(g, OVERGROWN, 0.34), 0.82);
+  if (mowed) return g;                      // the reveal rule always wins
+  if (level <= 0) return season === 0 ? mix(g, FROST, 0.5) : g;
+  // overgrown; and winter ground carries a snow dusting whatever the weather
+  const over = shade(mix(g, OVERGROWN, 0.34), 0.82);
+  return season === 0 ? mix(over, FROST, 0.55) : over;
 }
 
 /** Multiply a hex colour brightness. */
@@ -75,6 +86,7 @@ export function stripe(hex) { return mix(hex, '#FFFFFF', 0.17); }
 
 /** Grass blade colour: level 1 needs a push toward ink to show on its tile. */
 export function bladeColor(level, season = 2) {
+  if (season === 0) return WINTER_BLADE[level] || WINTER_BLADE[4];
   const g = levelGreen(level, season);
   return mix(g, INK, [0, 0.3, 0.15, 0.08, 0.06][level] || 0);
 }
