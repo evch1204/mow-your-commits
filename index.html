@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>lawn</title>
+  <link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap" rel="stylesheet" />
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; background: #FBF9F2; color: #2C2C2A; font-family: 'Patrick Hand', cursive; font-size: 18px; display: flex; flex-direction: column; align-items: center; padding: 32px 16px; gap: 12px; }
+    h1 { font-size: 28px; font-weight: 400; margin: 0; }
+    .bar { width: min(720px, 100%); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .bar span b { font-weight: 400; color: #27500A; }
+    #stage { width: min(720px, 100%); border: 2px solid #2C2C2A; border-radius: 12px; overflow: hidden; background: #FBF9F2; outline: none; cursor: pointer; }
+    #stage:focus-visible { box-shadow: 0 0 0 3px #97C459; }
+    canvas { display: block; width: 100%; }
+    #deep { height: 420px; }
+    body[data-view="flat"] #deep, body[data-view="deep"] #flat { display: none; }
+    .controls { display: flex; gap: 8px; align-items: center; }
+    button { font: inherit; background: #FBF4DD; border: 2px solid #2C2C2A; border-radius: 8px; padding: 4px 14px; cursor: pointer; }
+    button[aria-pressed="true"] { background: #97C459; }
+    .hint { color: #888780; font-size: 15px; }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+</head>
+<body data-view="flat">
+  <h1>lawn</h1>
+  <div class="bar">
+    <span>driving through <b id="month">January</b></span>
+    <span>mowed <b id="pct">0%</b></span>
+  </div>
+  <div id="stage" tabindex="0" aria-label="Lawn. Click, then use WASD or arrow keys to drive the mower.">
+    <canvas id="flat"></canvas>
+    <canvas id="deep"></canvas>
+  </div>
+  <div class="controls">
+    <button data-view="flat" aria-pressed="true">flat</button>
+    <button data-view="deep" aria-pressed="false">3D</button>
+    <button id="regrow">regrow</button>
+    <span class="hint">click the lawn, then WASD or arrows</span>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
