@@ -286,7 +286,7 @@ export class Renderer3D {
     for (let i = 0; i < n; i++) { pos[i * 3] = w0 + Math.random() * (w1 - w0); pos[i * 3 + 1] = Math.random() * 8; pos[i * 3 + 2] = fz - 6 + Math.random() * 12; }
     this.snowGeo = new THREE.BufferGeometry();
     this.snowGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.scene.add(new THREE.Points(this.snowGeo, new THREE.PointsMaterial({ color: 0x85b7eb, size: 0.1, depthWrite: false })));
+    this.scene.add(new THREE.Points(this.snowGeo, new THREE.PointsMaterial({ color: 0x85b7eb, size: 3, sizeAttenuation: false, depthWrite: false })));
 
     const [a0, a1] = span(ranges[3]);
     this.leaves = [];
