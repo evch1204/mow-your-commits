@@ -178,7 +178,7 @@ export class Renderer3D {
   // --- scene ------------------------------------------------------------
 
   buildGround() {
-    const base = this.inked(new THREE.BoxGeometry(COLS + 2.4, 0.7, ROWS + 2.4), this.toon(DIRT), 1.015);
+    const base = this.inked(new THREE.BoxGeometry(COLS + 1.6, 0.7, ROWS + 1.5), this.toon(DIRT), 1.015);
     base.position.y = -0.35;
     this.scene.add(base);
   }
@@ -286,7 +286,7 @@ export class Renderer3D {
     for (let i = 0; i < n; i++) { pos[i * 3] = w0 + Math.random() * (w1 - w0); pos[i * 3 + 1] = Math.random() * 8; pos[i * 3 + 2] = fz - 6 + Math.random() * 12; }
     this.snowGeo = new THREE.BufferGeometry();
     this.snowGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.scene.add(new THREE.Points(this.snowGeo, new THREE.PointsMaterial({ color: 0x85b7eb, size: 0.16 })));
+    this.scene.add(new THREE.Points(this.snowGeo, new THREE.PointsMaterial({ color: 0x85b7eb, size: 0.1, depthWrite: false })));
 
     const [a0, a1] = span(ranges[3]);
     this.leaves = [];
@@ -424,7 +424,8 @@ export class Renderer3D {
     return m;
   }
 
-  onMowed(indices) {
+  /** @param quiet true for the end-card confetti: clippings only, no label. */
+  onMowed(indices, quiet) {
     const m = this.lawn.mower;
     let sum = 0;
     for (const i of indices) {
@@ -448,7 +449,7 @@ export class Renderer3D {
         this.clippings.push(cm);
       }
     }
-    if (sum > 0) this.spawnPopup(sum);
+    if (sum > 0 && !quiet) this.spawnPopup(sum);
     if (indices.length) this.flagDirty();
   }
 
@@ -463,7 +464,8 @@ export class Renderer3D {
     });
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
     const m = this.lawn.mower;
-    sp.position.set(wx(m.x), 1.6, wz(m.z));
+    const jitter = (this.popups.length % 3) - 1;
+    sp.position.set(wx(m.x) - Math.sin(m.angle) * jitter * 0.9, 2.1 + jitter * 0.25, wz(m.z) + Math.cos(m.angle) * jitter * 0.9);
     sp.scale.set(2.4, 1.2, 1);
     sp.renderOrder = 10;
     this.scene.add(sp);
@@ -562,27 +564,30 @@ export class Renderer3D {
 
     // sky follows the month under the mower
     this.skyTarget.set(SEASONS[SEASON_OF_MONTH[monthAt(lawn, m.x)]].sky);
-    this.scene.background.lerp(this.skyTarget, 0.03);
+    this.scene.background.lerp(this.skyTarget, this.snapped ? 0.03 : 1);
 
     // camera: chase <-> overview, blended so it feels like one camera
-    this.camBlend += (this.camMode - this.camBlend) * Math.min(1, dt * 3.4);
+    this.camBlend += (this.camMode - this.camBlend) * (this.snapped ? Math.min(1, dt * 3.4) : 1);
     const b = this.camBlend;
-    const cx = wx(m.x) - Math.cos(m.angle) * 7.5;
-    const cz = wz(m.z) - Math.sin(m.angle) * 7.5;
-    const ox = 0, oy = 25, oz = 27;
+    const cx = wx(m.x) - Math.cos(m.angle) * 8.2;
+    const cz = wz(m.z) - Math.sin(m.angle) * 8.2;
+    const ox = 0, oy = 17, oz = 21;
     const tx = cx + (ox - cx) * b;
-    const ty = 6 + (oy - 6) * b;
+    const ty = 6.4 + (oy - 6.4) * b;
     const tz = cz + (oz - cz) * b;
     const cam = this.camera;
-    const s = Math.min(1, dt * 4.5);
+    // snap on the very first frame, otherwise a single-frame render (or a
+    // headless screenshot) would show the camera still flying in
+    const s = this.snapped ? Math.min(1, dt * 4.5) : 1;
+    this.snapped = true;
     cam.position.x += (tx - cam.position.x) * s;
     cam.position.y += (ty - cam.position.y) * s;
     cam.position.z += (tz - cam.position.z) * s;
 
-    const lx = wx(m.x) + Math.cos(m.angle) * 2.5;
-    const lz = wz(m.z) + Math.sin(m.angle) * 2.5;
+    const lx = wx(m.x) + Math.cos(m.angle) * 3.4;
+    const lz = wz(m.z) + Math.sin(m.angle) * 3.4;
     this.lookAt.x += (lx + (0 - lx) * b - this.lookAt.x) * s;
-    this.lookAt.y += (0.6 + (0 - 0.6) * b - this.lookAt.y) * s;
+    this.lookAt.y += (0.1 + (0 - 0.1) * b - this.lookAt.y) * s;
     this.lookAt.z += (lz + (0 - lz) * b - this.lookAt.z) * s;
     cam.lookAt(this.lookAt);
 
