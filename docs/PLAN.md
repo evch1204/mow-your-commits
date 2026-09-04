@@ -189,3 +189,176 @@ Headless screenshot recipe (Chrome is installed on this machine):
     "/c/Program Files/Google/Chrome/Application/chrome.exe" --headless=new --disable-gpu --use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader --hide-scrollbars --window-size=1000,800 --virtual-time-budget=6000 --screenshot=<scratchpad>/flat.png "http://localhost:4173/?view=flat&autodrive=1"
 
 Then Read the PNG and actually look at it. Iterate on the look until it matches the plan.
+
+
+---
+
+# v0.3 - follow GitHub's year picker, live weather, a real mower, drag-to-look
+
+User feedback on v0.2 (screenshots in scratchpad/shots): "looks a lot better", then:
+
+1. GitHub shows every year and lets you pick one. We only show the rolling last 52 weeks.
+2. In 3D the first two month signs are merged together (Aug/Sep overlap at the start).
+3. In 3D, mouse drag should let you look around.
+4. Weather and "temperature" should change only when you drive into that time frame.
+   Winter should be almost snowy grass.
+5. The 3D mower feels like a toy car. Make it read as a riding lawn mower.
+
+Also carry over v0.2 rough edges: 3D overview has empty sky under the slab (needs a
+horizon); summer sky is indistinguishable from the page paper; the 2D view shows the
+last-mowed tag twice (on-canvas and in the HTML bar).
+
+## 1. Year picker (core + both renderers + page)
+
+Match GitHub's profile: to the right of the graph a vertical list of years, the active one
+highlighted. Top entry is the rolling "last year" (current behaviour), then one entry per
+calendar year, newest first. For the fake data offer the current year back 5 years; when
+real data lands this becomes the account's years. On narrow screens the list becomes a
+horizontal row of chips under the stage.
+
+Calendar-year semantics, exactly like GitHub:
+- Grid starts on the Sunday of the week containing 1 Jan and ends on the Saturday of the
+  week containing 31 Dec. That is 53 columns (sometimes 54) with **void cells** before
+  1 Jan and after 31 Dec.
+- Void cells: `date: null`, `level: 0`, `count: 0`, `void: true`, never mowable, drawn as
+  *nothing* in 2D (no tile, no pebbles) and as no tile/no grass in 3D (dirt shows).
+- Month labels start at Jan. A month owning fewer than 3 columns still gets no label.
+- Heading becomes `1,764 contributions in 2025` for a picked year, and keeps
+  `... in the last year` for the rolling view.
+
+Core changes:
+- `COLS` stops being a hard constant that renderers read. `createLawn` returns
+  `lawn.cols` (52, 53 or 54) and `lawn.rows = 7`. Both renderers must use `lawn.cols`.
+  Keep an exported `MAX_COLS = 54` for buffer sizing (3D InstancedMesh counts).
+- `createLawn(days, { year })` where `days` may include void entries, or a helper
+  `layoutYear(days, year)` that pads a Jan 1..Dec 31 list into the 53/54-column grid.
+- `generateFakeData(seed, year)`: `year == null` -> rolling 52 weeks ending today (current
+  behaviour); a year -> every day of that calendar year. Seed the RNG with `seed ^ year`
+  so each year looks different but deterministic.
+- `resetLawn` and the mower start position use `lawn.cols`.
+- `contrib.js`: add `daysForYear(days, year)` that filters a parsed list to a calendar
+  year and pads voids via the same layout helper, so the real-data path will work later.
+- Smoke test: add cases for a 53-column year and for void cells being unmowable and not
+  counted in `mowable` or `totalContributions`.
+
+Page: `?year=2025` URL flag. Picking a year rebuilds the lawn, calls `setLawn` on both
+renderers (3D must rebuild signs, weather ranges, tile/grass instance counts), resets the
+timer and end card. The 2D canvas width follows `lawn.cols`.
+
+## 2. 3D month signs
+
+Signs currently sit at `col + 2.1`, so a first month with 1-3 columns collides with the
+next one. Rule: place a sign at the month's first column + 0.6; skip months owning fewer
+than 3 columns (same as 2D); if two signs would still be closer than 3.2 world units,
+drop the earlier one. Signs should also alternate post height slightly (1.9 / 2.2) so a
+run of signs does not read as a single fence rail. Rebuild signs on `setLawn`.
+
+## 3. Drag to look around (3D)
+
+- Pointer drag on the 3D canvas orbits the camera: horizontal drag changes yaw, vertical
+  drag changes pitch (clamp pitch 8-75 degrees). Wheel / pinch zooms the distance (clamp
+  4-14 in chase, 25-60 in overview). Use pointer events with `touch-action: none`;
+  a drag must not steal keyboard focus from the stage (still call `stage.focus()`).
+- Chase mode: the orbit is *relative to the mower heading*. The yaw offset persists while
+  the mower is not accelerating; once the player holds gas for > 0.5 s, ease the offset
+  back to 0 over ~1.5 s so driving always returns to the chase framing.
+- Overview mode: the orbit persists (it's a look-around camera), centred on the lawn.
+- Double-click / double-tap resets the offsets. Add "drag to look around" to the hint.
+- The drag must not conflict with the touch pad buttons (they stop propagation).
+
+## 4. Weather follows the mower; winter is snowy grass
+
+Today weather props are placed statically over the season's columns (snow over the winter
+columns, leaves over autumn, sun over summer). Change to: **the scene's weather is a
+function of the season under the mower**, blended smoothly as you cross month boundaries.
+
+- Introduce `weatherMix[4]` (winter/spring/summer/autumn weights, sum 1) that lerps toward
+  the one-hot of `seasonAt(lawn, mower.x)` at ~1.2/s. Every weather system reads it:
+  - **Snow**: particle count/visibility x `mix[winter]`, falls over the whole visible
+    scene around the camera target (respawn within +/-14 units of the mower), not just over
+    winter columns. Larger flakes than the current points (use a small canvas-textured
+    sprite `PointsMaterial` with a soft round dot, size ~0.35).
+  - **Leaves**: x `mix[autumn]`, same follow-the-mower box.
+  - **Sun + clouds**: sun sprite opacity/scale x `(mix[summer] + 0.5*mix[spring])`,
+    clouds drift and their opacity x `(mix[spring] + mix[autumn] + 0.6*mix[winter])`.
+    Anchor them to the camera target horizontally (skybox-ish), high up behind the fence.
+  - **Sky colour**: already lerps by season; also lerp the hemisphere light colour
+    (cool blue-white in winter, warm in summer) and the directional light intensity
+    (0.8 winter -> 1.3 summer). Fix the summer sky: use `#DDEFFB`-ish clear blue so it is
+    never confused with the paper background, and adjust `SEASONS[2].sky` in
+    `src/core/lawn.js` (2D does not draw a sky so this is 3D-only in effect).
+  - A small HUD word next to the month: `driving through January - snowing` /
+    `- sunny` / `- leaves falling` / `- fresh` - one adjective per season.
+- **Winter cells look wintry regardless of where the mower is** (the ground has a
+  climate, the weather is what's happening now):
+  - Winter-column tiles get a snow dusting: per-instance colour lerps toward
+    `#F2F5F7` by ~55% while unmowed; the blade colour for winter is pale frosted green
+    `#B9CFC0` with a white tip (add a vertical colour gradient in the sway/boil shader
+    hook, or simpler: a second, shorter white-ish tuft instance overlapping the green one
+    for winter columns; pick whichever is cheaper to get right).
+  - Mowed winter tiles still reveal the GitHub green (the reveal rule wins), but with the
+    <=25% winter tint already in `palette.js`.
+  - 2D: winter columns already have the season tint; push it further so the tiles look
+    frosted (lighter, cooler) and draw 1-2 tiny snow caps (white dots) on level 3-4 tufts.
+    Keep the snowflake dressing on level-0 tiles.
+- Autumn columns: a few orange/brown blades mixed into level 2-4 tufts (per-instance
+  colour jitter toward `#BA7517` on ~20% of autumn cells). Spring: a couple of tiny
+  flower dots (pink/white) on level-1/2 tiles in 2D and small sprite dots in 3D.
+
+## 5. The 3D mower: a riding mower, not a toy car
+
+Rebuild `buildMower()` as a recognisable riding lawn mower (John Deere / Husqvarna
+silhouette) in the same toon + ink style. Overall footprint ~1.0 wide x 1.7 long, sits low.
+Parts, front to back (front = +z in mower local space, matching the deck offset today):
+- **Hood**: a low, slightly tapered box (orange `#D85A30`) with a rounded top edge
+  (use a box + a half-cylinder or a slightly smaller box on top), a black grille strip at
+  the front, two tiny round headlights (cream) with ink outlines.
+- **Cutting deck** under the middle: a wide flat cylinder (dark grey), *wider than the
+  body* so it visibly sticks out both sides, with a **discharge chute** (small angled
+  box) on the right side. Clippings should spawn from the chute, not from under the
+  centre.
+- **Front wheels**: small (r 0.14) on a thin axle. **Rear wheels**: big (r 0.30) with
+  chunky tread (a torus or a cylinder with 8 dark ridges) and a cream hub. Rear wheels
+  larger than fronts is the riding-mower signature; do not skip this.
+- **Seat**: a high-backed seat (dark grey box + backrest) behind the hood on a fender
+  plate; a **steering wheel** (thin torus, ink) on an angled column rising from the hood.
+- **Driver**: a simple figure sitting: torso (green shirt), two arm cylinders reaching
+  the wheel, a round head with the existing ink face, a cap (small cylinder + brim) in the
+  mower orange. Head bobs with the body; arms stay on the wheel.
+- **Exhaust pipe** at the back-left with a puff every ~0.5 s while accelerating (2-3
+  small grey spheres rising and fading, reuse the clippings loop).
+- Animation: wheels roll with speed (rear slower than front by the radius ratio),
+  subtle engine idle vibration on the whole body (`y += sin(t*60)*0.004`), tilt on
+  accelerate/brake kept, and a lean into turns (`rotation.z` proportional to turn input
+  x speed).
+- Keep every part inked with the inverted hull. Total should still be < 40 meshes.
+- Update the 2D mower doodle to match the new silhouette (big rear wheel, small front
+  wheel, seat + driver seen from above, deck wider than body), so the two views agree.
+
+## 6. Carry-over fixes
+
+- **Horizon for 3D**: add a large flat ground plane far below the slab (e.g. a
+  `PlaneGeometry(400, 400)` at `y = -0.9` in a paper/meadow colour, toon-shaded), plus
+  a soft gradient sky (a big inverted sphere with a two-colour vertex gradient, or just
+  set the ground plane colour to a lighter version of the sky so the horizon reads).
+  The v0.2 attempt filled the frame because the plane was at the slab's height and the
+  camera looked down; keep the plane well below and check the overview screenshot: the
+  sky, sun and clouds must remain visible above the horizon line.
+- **Duplicate tag in 2D**: the on-canvas doodle tag stays for the flat view; hide the
+  HTML tag when `data-view="flat"`, show it in 3D.
+- Legend tufts in 2D: draw them at 1.3x scale so level 1 vs 2 is legible after CSS
+  scaling.
+
+## Definition of done for v0.3
+
+1. `npm run build` passes; `node scripts/smoke.mjs` passes with the new year/void cases.
+2. Screenshots (same recipe): `?view=flat&year=2025` shows a Jan->Dec grid with void
+   cells at the start/end drawn as nothing and the year list with 2025 highlighted;
+   `?view=deep` shows non-overlapping month signs and the new mower clearly readable as a
+   riding mower (big rear wheels, seat, driver, wide deck); `?view=deep&cam=overview`
+   shows a horizon under the slab and the sky/sun still visible; a screenshot with the
+   mower placed in winter columns (add `?start=<col>` debug flag to spawn the mower at a
+   column) shows snowfall over the scene and frosted grass, and one in summer shows the
+   sun, no snow, warm light.
+3. Drag-to-look cannot be verified headlessly; verify by code review and by a screenshot
+   with a `?yaw=45` debug flag that applies an orbit offset.
