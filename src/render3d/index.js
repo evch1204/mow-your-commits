@@ -97,7 +97,7 @@ export class Renderer3D {
     this.camBlend = 0;
     this.chase = { yaw: 0, pitch: 0, dist: 10.4 };
     this.over = { yaw: 0, pitch: 0, dist: 33 };
-    this.CHASE_PITCH = 0.66;
+    this.CHASE_PITCH = 0.55;
     this.OVER_PITCH = 0.42;
     this.gasHeld = 0;
     this.snapped = false;
@@ -828,7 +828,7 @@ export class Renderer3D {
     this.hemi.color.copy(hemi);
     this.dir.intensity = intensity || 1;
     // the apron reads as a horizon when it sits between the grass and the sky
-    this.apronMat.color.copy(this.meadow).lerp(sky, 0.35);
+    this.apronMat.color.copy(this.meadow).lerp(sky, 0.3 + wm[0] * 0.4);
 
     // snow, always around the mower so it is weather and not scenery
     this.snowMat.opacity = wm[0];
@@ -869,8 +869,8 @@ export class Renderer3D {
     this.sun.material.rotation += 0.004;
     // Sky props hang a little above the camera's own height, so they are always
     // on the sky side of the horizon whichever camera you are on.
-    this.sun.position.set(tx + 11, camY + 1.7, this.fenceZ - 9);
-    this.sun.scale.setScalar(4.2 + sunny * 1.2);
+    this.sun.position.set(tx + 11, camY + 1.4, this.fenceZ - 9);
+    this.sun.scale.setScalar(3.6 + sunny * 1.0);
     const cloudy = clamp(wm[1] + wm[3] + wm[0] * 0.6, 0, 1);
     this.clouds.forEach((cl, i) => {
       cl.material.opacity = cloudy * 0.95;

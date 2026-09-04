@@ -255,7 +255,7 @@ export class Renderer2D {
       // stagger, so a burst of labels does not stack into one blob
       const j = this.popups.length % 3;
       this.popups.push({
-        x: this.px(m.x) + (j - 1) * 20,
+        x: this.px(m.x) + (j - 1) * 36,
         y: this.py(m.z) - 10 - j * 9,
         n: sum, t: 0,
       });
@@ -319,8 +319,8 @@ export class Renderer2D {
     const ink = (w) => { ctx.strokeStyle = INK; ctx.lineWidth = w; };
 
     // cutting deck: wider than the body, sticking out both sides
-    ctx.fillStyle = '#4A4A46';
-    this.box(-1, -10, 13, 20, 3);
+    ctx.fillStyle = '#615F58';
+    this.box(0, -9.5, 12, 19, 3);
     ctx.fill(); ink(1.4); ctx.stroke();
     // discharge chute on the right
     ctx.fillStyle = '#3A3A38';
