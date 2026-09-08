@@ -23,6 +23,7 @@ let hooks = { onData() {}, onDemo() {} };
 let seq = 0;             // bumped per request, so a stale response is ignored
 let loaded = null;       // the login on screen, or null for the demo
 let accountLine = '';    // the last thing said about the account, so a year change can put it back
+let demoSeed = null;     // the ?seed= the page opened with; "back to the demo" puts it back
 
 /** Set the form's state (idle | loading | ok | error) and its status line. */
 export function setStatus(state, text) {
@@ -110,7 +111,11 @@ function messageFor(err, login) {
   }
 }
 
-/** Put ?user= in the URL (and take ?seed= out; it only drives the demo). */
+/**
+ * Put ?user= in the URL and take ?seed= out; a seed only picks a fake lawn.
+ * Going back to the demo puts the seed back, so the link still reproduces the
+ * lawn on screen.
+ */
 function syncUrl(login) {
   const url = new URL(location.href);
   if (login) {
@@ -118,6 +123,7 @@ function syncUrl(login) {
     url.searchParams.delete('seed');
   } else {
     url.searchParams.delete('user');
+    if (demoSeed !== null) url.searchParams.set('seed', demoSeed);
   }
   history.replaceState(null, '', url);
 }
@@ -233,6 +239,7 @@ export function initLoader(next = {}) {
 
   // A token must never live in a URL. If someone links one, drop it on sight.
   const here = new URL(location.href);
+  demoSeed = here.searchParams.get('seed');
   if (here.searchParams.has('token')) {
     here.searchParams.delete('token');
     history.replaceState(null, '', here);
