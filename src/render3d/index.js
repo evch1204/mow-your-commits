@@ -343,8 +343,22 @@ export class Renderer3D {
   /** Everything whose size depends on lawn.cols. Rebuilt by setLawn. */
   buildBoard() {
     if (this.board) {
+      // Materials and textures need disposing by hand or the GPU copy outlives
+      // the mesh: a year switch builds twelve fresh 256x256 month signs, so
+      // clicking down a real account's sixteen years leaked ~190 textures.
+      // Everything in here is rebuilt below except the shared ink material and
+      // the cached tree / meadow canvases, which the new board reuses.
+      const keep = new Set([this.meadowTex]);
+      if (this.treeTex) for (const t of Object.values(this.treeTex)) keep.add(t);
       this.scene.remove(this.board);
-      this.board.traverse((o) => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+      this.board.traverse((o) => {
+        if (o.isMesh && o.geometry) o.geometry.dispose();
+        for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
+          if (!m || m === this.inkMat) continue;
+          if (m.map && !keep.has(m.map)) m.map.dispose();
+          m.dispose();
+        }
+      });
     }
     const cols = this.lawn.cols;
     const g = new THREE.Group();
