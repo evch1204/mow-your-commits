@@ -585,16 +585,37 @@ export class Renderer2D {
     ctx.globalAlpha = 1;
   }
 
+  /**
+   * The slice of the board that is actually on screen, in canvas units. On a
+   * phone the board is wider than the stage and scrolls sideways, so anything
+   * pinned to the far edge of the bed sits off screen.
+   */
+  visibleSpan() {
+    const stage = this.canvas.parentElement;
+    const shown = this.canvas.clientWidth;
+    if (!stage || !shown || shown <= stage.clientWidth + 2) return [0, this.width];
+    const scale = shown / this.width;               // css px per canvas unit
+    const from = stage.scrollLeft / scale;
+    return [from, from + stage.clientWidth / scale];
+  }
+
   /** The key doubles as a guide to how grass maps to contribution levels. */
   drawLegend() {
     const { ctx, lawn } = this;
     const y = OY + lawn.rows * PITCH + 30;
-    const right = OX + lawn.cols * PITCH - GAP;
     ctx.font = `16px ${FONT}`;
     ctx.textBaseline = 'middle';
     const wMore = ctx.measureText('more').width;
     const wLess = ctx.measureText('less').width;
-    const x0 = right - wMore - 26 - (5 * PITCH - GAP);
+    const swatches = 5 * PITCH - GAP;
+    // right-align to the bed, or to the visible slice of it when it scrolls,
+    // so a narrow screen gets the key instead of a blank strip under the lawn
+    const [visL, visR] = this.visibleSpan();
+    const right = Math.max(
+      visL + 8 + wLess + 26 + swatches + 26 + wMore,
+      Math.min(OX + lawn.cols * PITCH - GAP, visR - 8),
+    );
+    const x0 = right - wMore - 26 - swatches;
     ctx.fillStyle = PENCIL;
     ctx.fillText('less', x0 - wLess - 26, y + CELL / 2 + 1);
     ctx.fillText('more', right - wMore, y + CELL / 2 + 1);
