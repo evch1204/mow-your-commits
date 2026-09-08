@@ -57,7 +57,7 @@ export function markdownSnippet(user) {
   const u = parseUserInput(user) || 'YOUR-USERNAME';
   return `<picture>
   <source media="(prefers-color-scheme: dark)" srcset="${RAW}/${u}/${u}/output/lawn-dark.svg">
-  <img alt="my GitHub contribution graph as a half-mowed lawn" src="${RAW}/${u}/${u}/output/lawn.svg">
+  <img alt="my GitHub contribution graph as a lawn, mowed by a little tractor" src="${RAW}/${u}/${u}/output/lawn.svg">
 </picture>`;
 }
 

@@ -51,10 +51,11 @@ export const DEFAULT_SEED = 20260904;
 // --- shared randomness ----------------------------------------------------
 
 /**
- * The 16807 LCG every doodle jitters through: render2d, the SVG exporter and
- * the route planner all draw from it, so a blade that leans left on the canvas
- * leans left in the README picture too. Lives here because `src/core` is the
- * only thing the exporter and the renderers both import.
+ * The 16807 LCG. The SVG exporter and the route planner both draw from this
+ * one; render2d runs the same sequence from its own inline copy, which is why
+ * a blade that leans left on the canvas leans left in the README picture too.
+ * It lives in `src/core` because that is the only code the exporter and the
+ * renderers both import.
  */
 export function rng(seed) {
   let s = (Math.abs(Math.floor(seed)) % 2147483646) + 1;

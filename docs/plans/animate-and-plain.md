@@ -1,5 +1,9 @@
 # Plan: the README lawn mows the whole year, and can go plain
 
+> Shipped. Every constant below was a starting point; `src/core/route.js` holds
+> the tuned ones, and they differ (the backtracking idea became a frontier
+> window, and the weave got faster and shallower).
+
 Three changes to the exported picture (`src/export/svg.js`, the Action, the docs).
 The site's 2D/3D renderers are not touched. Everything here must stay pure and
 dependency-free: the Action runs `scripts/render-svg.mjs` with no `node_modules`.

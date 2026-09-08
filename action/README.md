@@ -41,7 +41,7 @@ Then in `USER/USER/README.md`:
 ```html
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/USER/USER/output/lawn-dark.svg">
-  <img alt="my GitHub contribution graph as a half-mowed lawn" src="https://raw.githubusercontent.com/USER/USER/output/lawn.svg">
+  <img alt="my GitHub contribution graph as a lawn, mowed by a little tractor" src="https://raw.githubusercontent.com/USER/USER/output/lawn.svg">
 </picture>
 ```
 
@@ -60,8 +60,8 @@ Then in `USER/USER/README.md`:
 | `theme` | `light` (default), `dark` | `dark` uses GitHub's own dark ramp on `#0D1117` |
 | `year` | `2025` | a calendar year instead of the rolling 52 weeks |
 | `mowed` | `0`..`1` (default `0.5`), `as-is` | how much of the lawn is already cut |
-| `mower` | `0` | park the mower off the picture |
-| `animate` | `1` | SMIL: the mower mows the whole year on a wandering route, drives off the edge, and the lawn regrows. `mowed` is ignored. A year is a 50-60 s loop and about 330 kB. |
+| `mower` | `0` | park the mower off the picture. Ignored under `animate`: the animation *is* the mower driving. |
+| `animate` | `1` | SMIL: the mower mows the whole year on a wandering route, drives off the edge, and the lawn regrows. `mowed` and `mower` are ignored. Roughly a 40-50 s loop and 300-500 kB, depending on how busy the year is. |
 | `weather` | `0` | no seasons: no month doodles, frost, flakes, leaves or blossom, one neutral bed, and GitHub's exact greens. Dandelions stay: they are data, not weather. |
 | `bg` | `0` | no paper behind the board, so the picture is transparent |
 | `caption` | text, or `0` for none | replaces "1,234 contributions in the last year" |

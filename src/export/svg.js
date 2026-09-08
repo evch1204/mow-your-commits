@@ -139,7 +139,9 @@ function normalize(lawn, opts) {
     asIs,
     k,
     frac,
-    seed: o.seed == null ? 7 : Number(o.seed),
+    // a junk seed would make every jitter NaN and every route cost NaN, and the
+    // seed can come off a query string, so it is checked rather than trusted
+    seed: o.seed != null && Number.isFinite(Number(o.seed)) ? Number(o.seed) : 7,
     animate: !!o.animate,
     // both default on: the picture is a doodle lawn first, a chart second
     weather: o.weather === undefined ? true : !!o.weather,
@@ -635,8 +637,11 @@ function dressing(lawn, theme, o, dots, seasonOf) {
       const rnd = rng((c.col * 31 + c.row * 7) * 131 + o.seed * 131 + 1);
       const x = tileX(c.col);
       const y = tileY(c.row);
-      for (let p = 0; p < 2; p++) {
-        pebbles.push(circleD(x + 4 + rnd() * 8, y + 5 + rnd() * 7, 0.9));
+      // pebbles are doodle dressing on bare dirt; the plain chart has none
+      if (o.weather) {
+        for (let p = 0; p < 2; p++) {
+          pebbles.push(circleD(x + 4 + rnd() * 8, y + 5 + rnd() * 7, 0.9));
+        }
       }
       const s = seasonOf(c.col);
       if ((s === 0 || s === 3) && (c.col * 7 + c.row * 3) % 5 === 0) {
@@ -699,36 +704,34 @@ function coverGroup(lawn, theme, o, route, timing, seasonOf) {
       vigor: c.vigor || 0, heroic: c.heroic,
     };
     tuft(bag, dots, over, x, y, grown, season, theme, o, 1);
-    // keyTimes has to be strictly increasing and end at exactly 1, so neither
-    // key may reach it: the last cell is cut a hair before the drive ends.
-    // a cell the planner somehow never reached is cut last rather than first:
-    // a tuft that outlives the drive is a visible bug, one that vanishes at
-    // t=0 is an invisible one
-    const s = route.cuts.has(i) ? route.cuts.get(i) : route.length;
-    const t = Math.min(timing.drive, Math.max(0.0002, (s / route.length) * timing.drive));
+    // planRoute guarantees a cut for every mowable cell, and the route always
+    // starts off the board, so t is never 0. keyTimes still has to be strictly
+    // increasing and end at exactly 1, so the snap that follows t must not
+    // reach it: the last cell is cut a hair before the drive ends.
+    const t = (route.cuts.get(i) / route.length) * timing.drive;
     const t2 = Math.min(t + SNAP, (1 + t) / 2);
     groups.push('<g>'
       + tileRect(c, x, y, season, theme, false)
       + frostCap(c, x, y, season, false)
-      + strokes('', bag)
+      + batched(bag, strokeAttrs)
       + batched(dots, (col) => `fill="${col}"`)
-      + strokes('', over)
+      + (over.size ? batched(over, strokeAttrs) : '')
       + `<animate attributeName="opacity" values="1;1;0;0"`
       + ` keyTimes="0;${t.toFixed(4)};${t2.toFixed(4)};1"`
       + ` dur="${n2(timing.dur)}s" repeatCount="indefinite"/></g>`);
   }
-  return `<g id="cover">${groups.join('')}</g>`;
+  // one cover per cell means the stroke defaults cannot batch by colour, but
+  // they can at least be said once for the whole layer instead of per cell
+  return `<g id="cover" fill="none" stroke-linecap="round">${groups.join('')}</g>`;
 }
 
-/** Where the route begins, in page pixels + the heading it starts on. */
+/**
+ * Where the route begins, in page pixels. No heading: `rotate="auto"` takes
+ * that off the path, and this point is off the picture anyway.
+ */
 function routeStart(route) {
-  const a = route.path[0];
-  const b = route.path[Math.min(route.path.length - 1, 1)];
-  return {
-    x: px(a.x),
-    y: py(a.z),
-    deg: (Math.atan2(b.z - a.z, b.x - a.x) * 180) / Math.PI,
-  };
+  const a = route.waypoints[0];
+  return { x: px(a.x), y: py(a.z) };
 }
 
 /**

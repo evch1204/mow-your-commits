@@ -86,7 +86,7 @@ jobs:
 ```html
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/USER/USER/output/lawn-dark.svg">
-  <img alt="my GitHub contribution graph as a half-mowed lawn" src="https://raw.githubusercontent.com/USER/USER/output/lawn.svg">
+  <img alt="my GitHub contribution graph as a lawn, mowed by a little tractor" src="https://raw.githubusercontent.com/USER/USER/output/lawn.svg">
 </picture>
 ```
 
@@ -105,7 +105,7 @@ seasons. Every option, one per output line:
 | `bg` | `0` | no paper behind the board: a transparent picture |
 | `year` | `2025` | a calendar year instead of the rolling 52 weeks |
 | `mowed` | `0`..`1`, `as-is` | how much is already cut (default `0.5`) |
-| `mower` | `0` | park the mower off the picture |
+| `mower` | `0` | park the mower off the picture (ignored under `animate`) |
 | `caption` | text, or `0` | replace "1,234 contributions in the last year" |
 
 More in [`action/README.md`](action/README.md). Prefer a file? The site has

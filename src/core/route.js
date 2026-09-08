@@ -35,9 +35,8 @@ const WAVE_L = 2.6;
 
 /** Marking cells mowed along a straight pick, in cells. */
 const MARK_STEP = 0.2;
-/** Curve sampling: fine for the mowing walk, coarse for the returned path. */
+/** How finely the smoothed curve is walked when working out what it cuts. */
 const FINE = 0.02;
-const WALK = 0.1;
 
 /** Centripetal Catmull-Rom, and a cap on how far a control point may reach. */
 const ALPHA = 0.5;
@@ -59,12 +58,13 @@ function turn(h, a) {
  * @param lawn from createLawn(); never mutated.
  * @param seed picks the entry row, the phase of the weave and the jitter.
  * @returns {{
- *   waypoints: Array<{x, z}>,   // cell units, the frame lawn.mower lives in
+ *   waypoints: Array<{x, z}>,     // cell units, the frame lawn.mower lives in
  *   curve: Array<{a, c1, c2, b}>, // the smoothed spline, one cubic per span
- *   path: Array<{x, z, s}>,     // samples along the curve, ~0.1 cells apart
- *   cuts: Map<number, number>,  // cell index -> arc length at which it is cut
- *   length: number,             // total arc length, in cells
+ *   cuts: Map<number, number>,    // cell index -> arc length at which it is cut
+ *   length: number,               // total arc length, in cells
  * }}
+ * `cuts` has an entry for every mowable cell; a route that cannot reach one
+ * throws rather than returning a drive that leaves a tuft standing.
  */
 export function planRoute(lawn, seed = 7) {
   const rows = lawn.rows;
@@ -81,7 +81,10 @@ export function planRoute(lawn, seed = 7) {
 
   const z0 = 1.5 + rnd() * Math.max(0, rows - 3);
   const phase = rnd() * Math.PI * 2;
-  const start = { x: -1.5, z: z0 };
+  // clear of the picture, like the exit: at -3.5 the mower's nose still pokes
+  // past the left edge at t=0, which reads as a sliver of tractor parked on the
+  // Mon/Wed/Fri labels rather than as a mower about to drive on
+  const start = { x: -4.5, z: z0 };
 
   const waypoints = targets.length
     ? tour(targets, start, rows, phase, rnd)
@@ -103,8 +106,13 @@ export function planRoute(lawn, seed = 7) {
     curve = beziers(waypoints);
     walk = mowWalk(curve, targets, lawn);
   }
+  // Loud beats wrong: a route with a hole in it would ship a tuft that never
+  // gets cut into somebody's README, on a loop, forever.
+  if (walk.missed.length) {
+    throw new Error(`planRoute: ${walk.missed.length} cell(s) still uncut after 10 passes`);
+  }
 
-  return { waypoints, curve, path: walk.path, cuts: walk.cuts, length: walk.length };
+  return { waypoints, curve, cuts: walk.cuts, length: walk.length };
 }
 
 /**
@@ -261,10 +269,8 @@ function mowWalk(curve, targets, lawn) {
   }
 
   const cuts = new Map();
-  const path = [];
   const r2 = MOW_RADIUS * MOW_RADIUS;
   let s = 0;
-  let next = 0;            // arc length of the next sample to keep
 
   for (let i = 0; i < dense.length; i++) {
     const q = dense[i];
@@ -290,13 +296,8 @@ function mowWalk(curve, targets, lawn) {
         if (ddx * ddx + ddz * ddz < r2) cuts.set(idx, s);
       }
     }
-
-    if (s >= next || i === dense.length - 1) {
-      path.push({ x: q.x, z: q.z, s });
-      next = s + WALK;
-    }
   }
 
   const missed = targets.filter((t) => !cuts.has(t.i));
-  return { cuts, path, length: s, missed };
+  return { cuts, length: s, missed };
 }

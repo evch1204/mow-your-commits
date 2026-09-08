@@ -16,17 +16,17 @@ export const GITHUB = ['#EBEDF0', '#9BE9A8', '#40C463', '#30A14E', '#216E39'];
 export const BARE = '#E7E1D0';
 
 /**
+ * "No season at all", for the plain chart the exporter can draw (`weather=0`).
+ * Every rule that reads a season index treats it as no tint and no weather, and
+ * level 0 goes back to GitHub's own grey, so the whole ramp is GitHub's.
+ */
+export const NO_SEASON = -1;
+
+/**
  * Season tint, [hex, amount]. Lerped on top of the GitHub green so the graph
  * still reads as GitHub greens in every season. Never more than 25%.
  * 0 winter, 1 spring, 2 summer, 3 autumn.
  */
-/**
- * "no season at all", for the plain chart the exporter can draw (`weather=0`).
- * Every rule that reads a season index treats it as zero tint and no weather,
- * so the tiles come out as GitHub's exact ramp.
- */
-export const NO_SEASON = -1;
-
 export const SEASON_TINT = [
   ['#C3D4DB', 0.25], // winter: cool, desaturated
   ['#BDEE72', 0.12], // spring: fresh
@@ -121,12 +121,13 @@ export const LIGHT_RAMP = { greens: GITHUB, bare: BARE, frost: FROST, ink: INK }
 
 /** Season-tinted GitHub green for a level. Always recognisably GitHub. */
 export function levelGreen(level, season = 2, ramp = LIGHT_RAMP) {
-  const base = level <= 0 ? ramp.bare : ramp.greens[level];
-  // NO_SEASON returns the ramp colour untouched rather than mixing by 0, so the
-  // plain chart carries GitHub's own hex strings, not a re-rounded copy of them
-  const st = SEASON_TINT[season] || (season === NO_SEASON ? null : SEASON_TINT[2]);
-  if (!st) return base;
-  return mix(base, st[0], level <= 0 ? st[1] * 0.5 : st[1]);
+  // No season is the plain chart: GitHub's own grey for an empty day instead of
+  // the doodle's paper-dirt, and the hex handed back verbatim rather than run
+  // through mix(), so the string in the file is GitHub's, capitals and all.
+  if (season === NO_SEASON) return ramp.greens[Math.max(0, level)];
+  const [tint, amt] = SEASON_TINT[season] || SEASON_TINT[2];
+  if (level <= 0) return mix(ramp.bare, tint, amt * 0.5);
+  return mix(ramp.greens[level], tint, amt);
 }
 
 /**

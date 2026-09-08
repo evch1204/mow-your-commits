@@ -7,6 +7,7 @@ import {
 } from '../src/core/lawn.js';
 import {
   GRASS, grassFor, tileColor, bladeColor, hexToRgb, mix, SEASON_TINT, DANDELION, GITHUB,
+  BARE,
 } from '../src/core/palette.js';
 import { planRoute } from '../src/core/route.js';
 import { lawnToSvg, GEOM } from '../src/export/svg.js';
@@ -803,10 +804,17 @@ ok('plain drops the season doodles', !plain.includes('id="glyphs"'));
 ok('plain drops the frost caps', !plain.includes('id="frost"'));
 ok('plain drops snow and flakes', !plain.includes('#85B7EB'));
 ok('plain drops the fallen leaves', !plain.includes('rx="2.6" ry="1.6"'));
-ok('plain is GitHub\'s exact ramp', [1, 2, 3, 4].every((l) => plain.includes(GITHUB[l])),
-  [1, 2, 3, 4].map((l) => plain.includes(GITHUB[l])).join(','));
+// all five levels, empty days included: the plain chart is GitHub's own ramp,
+// not the doodle's paper-dirt for level 0
+ok('plain is GitHub\'s exact ramp', GITHUB.every((g) => plain.includes(g)),
+  GITHUB.map((g) => plain.includes(g)).join(','));
+ok('plain drops the doodle bare tile', !plain.includes(BARE));
+ok('plain drops the pebbles on bare dirt',
+  !plain.includes(`fill="rgba(${THEMES.light.inkRgb},0.28)"`));
+// with weather on, every level is season-tinted, level 0 off BARE rather than
+// GitHub's grey, so no ramp hex survives verbatim
 ok('a lawn with weather is tinted, not the exact ramp',
-  [1, 2, 3, 4].every((l) => !svg.includes(GITHUB[l])));
+  GITHUB.every((g) => !svg.includes(g)) && !svg.includes(BARE));
 ok('plain lays one neutral bed', (/<g id="bed"[^>]*>((?:(?!<\/g>).)*)/.exec(plain)[1]
   .match(/<rect/g) || []).length === 2);
 ok('plain keeps the dandelions: they are data, not weather', plain.includes(DANDELION));
@@ -816,6 +824,10 @@ ok('the paper is back when only the weather is off',
   lawnToSvg(svgLawn, { weather: false }).includes('<rect width="100%"'));
 ok('plain is deterministic',
   lawnToSvg(svgLawn, { weather: false, background: false }) === plain);
+// the seed can arrive off a query string; NaN would poison every jitter and
+// every route cost, and planRoute would throw halfway through a render
+ok('a junk seed falls back to the default',
+  lawnToSvg(svgLawn, { animate: true, seed: 'abc' }) === animSvg);
 
 // --- the login that comes off the URL -------------------------------------
 // share.js has no sanitiser of its own: parseUserInput (tested above) is the

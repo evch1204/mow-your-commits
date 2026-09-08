@@ -280,8 +280,8 @@ function on(id, ev, fn) {
 }
 
 /** The exported picture: this lawn, as a standalone SVG. */
-function exportSvg(mowed) {
-  return lawnToSvg(lawn, { mowed, user: currentUser() });
+function exportSvg(mowed, opts) {
+  return lawnToSvg(lawn, { mowed, user: currentUser(), ...opts });
 }
 
 /** Download what you mowed; before you start, the half-mowed still. */
@@ -296,13 +296,18 @@ function exportName() {
  * refreshTotals() runs this at boot, so a throw here would take the whole page
  * down with it (no render loop, no controls): the preview is the one thing on
  * the page allowed to be missing.
+ *
+ * Animated, because the workflow the button next to it copies carries
+ * `animate=1`: the preview has to be the picture that actually lands in a
+ * README. It costs a few hundred kB, but this runs once per lawn, not per
+ * frame. The download buttons stay still pictures of the board as you mowed it.
  */
 function refreshPreview() {
   const img = $('preview');
   if (!img) return;
   let svg;
   try {
-    svg = exportSvg(0.5);
+    svg = exportSvg(0.5, { animate: true });
   } catch (err) {
     console.error('could not draw the readme preview', err);
     img.removeAttribute('src');
