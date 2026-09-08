@@ -238,6 +238,27 @@
       #pad button { width: 66px; height: 58px; }
     }
 
+    /* --- landing strips below the board (plan C owns every .strip rule) --- */
+    .strip { width: min(1040px, 100%); margin-top: 26px; }
+    .strip h2 { font-size: 24px; font-weight: 400; margin: 0 0 4px; }
+    .strip p, .strip li { color: var(--pencil); font-size: 18px; }
+    .strip p { margin: 0 0 10px; }
+    .strip ol { margin: 12px 0 0; padding-left: 22px; }
+    .strip li { margin-bottom: 10px; }
+    .strip code { color: var(--ink); }
+    #preview {
+      display: block; width: 100%; border: 2px solid var(--ink);
+      border-radius: 12px; background: var(--paper);
+    }
+    #preview:not([src]) { display: none; }
+    #yaml {
+      background: var(--cream); border: 2px solid var(--ink); border-radius: 9px;
+      padding: 10px 14px; margin: 8px 0 0;
+      font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      overflow-x: auto; white-space: pre;
+    }
+    .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
     @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
   </style>
 </head>
@@ -321,6 +342,26 @@
       <button data-key="up" class="gas" aria-label="go">gas</button>
     </div>
   </div>
+
+  <section id="readme" class="strip">
+    <h2>put your lawn in your README</h2>
+    <p>a GitHub Action mows your graph every night and commits the picture to your profile
+      repo. no tokens, no servers, nothing to host.</p>
+    <img id="preview" alt="your lawn as it will look in a README" />
+    <div class="btns">
+      <button id="dlsvg">download svg</button>
+      <button id="dlpng">download png</button>
+      <button id="cpmd">copy markdown</button>
+    </div>
+    <ol>
+      <li>make a repo named after you (<code>you/you</code>) if you don't have one</li>
+      <li>add <code>.github/workflows/lawn.yml</code> with this:
+        <button id="cpyml">copy workflow</button>
+        <pre id="yaml"></pre>
+      </li>
+      <li>run it once from the actions tab, then paste the markdown above into your README</li>
+    </ol>
+  </section>
 
   <script type="module" src="/src/main.js"></script>
 </body>

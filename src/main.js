@@ -7,6 +7,9 @@ import { daysForYear, daysForRolling } from './core/contrib.js';
 import { initLoader, loadUser, setStatus, restoreStatus } from './loader.js';
 import { Renderer2D } from './render2d/index.js';
 import { Renderer3D } from './render3d/index.js';
+import { lawnToSvg } from './export/svg.js';
+import { svgToPngBlob, download, downloadSvg } from './export/png.js';
+import { currentUser, markdownSnippet, workflowYaml, copy } from './share.js';
 
 const params = new URLSearchParams(location.search);
 const seed = Number(params.get('seed')) || DEFAULT_SEED;
@@ -210,6 +213,7 @@ function refreshTotals() {
   $('total').textContent = nf.format(lawn.totalContributions);
   $('ctotal').textContent = nf.format(lawn.totalContributions);
   $('span').textContent = periodLabel(lawn);
+  refreshPreview();
 }
 
 /** "-2 °C" with a real minus sign, so the HUD lines up. */
@@ -245,6 +249,54 @@ function copyBrag() {
     window.prompt('copy this', text);
   }
 }
+
+// --- share / export ------------------------------------------------------
+
+let previewUrl = '';
+
+function on(id, ev, fn) {
+  const el = $(id);
+  if (el) el.addEventListener(ev, fn);
+}
+
+/** The exported picture: this lawn, as a standalone SVG. */
+function exportSvg(mowed) {
+  return lawnToSvg(lawn, { mowed, user: currentUser() });
+}
+
+/** Download what you mowed; before you start, the half-mowed still. */
+function exportState() { return lawn.mowed > 0 ? 'as-is' : 0.5; }
+
+function exportName() {
+  return 'lawn-' + (currentUser() || 'demo') + '-' + (year === null ? 'last' : year);
+}
+
+/** The README section's <img>. One object URL at a time, never per frame. */
+function refreshPreview() {
+  const img = $('preview');
+  if (!img) return;
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = URL.createObjectURL(new Blob([exportSvg(0.5)], { type: 'image/svg+xml' }));
+  img.src = previewUrl;
+}
+
+if ($('yaml')) $('yaml').textContent = workflowYaml();
+
+on('dlsvg', 'click', () => downloadSvg(exportSvg(exportState()), exportName() + '.svg'));
+on('dlpng', 'click', async (e) => {
+  const btn = e.currentTarget;
+  const was = btn.textContent;
+  btn.textContent = 'rendering...';
+  try {
+    download(await svgToPngBlob(exportSvg(exportState()), 2), exportName() + '.png');
+  } catch (err) {
+    window.alert('could not make a png here. the svg download works everywhere.');
+  }
+  btn.textContent = was;
+});
+on('cpmd', 'click', (e) => copy(markdownSnippet(currentUser()), e.currentTarget));
+on('cpyml', 'click', (e) => copy(workflowYaml(), e.currentTarget));
+
 
 // --- HUD -----------------------------------------------------------------
 
