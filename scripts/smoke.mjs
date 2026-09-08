@@ -2,9 +2,9 @@
 //   node scripts/smoke.mjs
 import {
   createLawn, resetLawn, tick, progress, COLS, ROWS, MAX_COLS,
-  describeCell, formatTime, gridForYear, layoutYear, placeMower,
+  describeCell, formatTime, gridForYear, layoutYear, placeMower, isoDay,
 } from '../src/core/lawn.js';
-import { daysForYear, yearsIn } from '../src/core/contrib.js';
+import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
 import {
   parseUserInput, normaliseApi, clampLevel, GithubError,
 } from '../src/core/github.js';
@@ -265,6 +265,41 @@ throwsKind('normaliseApi(null) is malformed', 'malformed', () => normaliseApi(nu
 const ghost = normaliseApi(fixture('jogruber-ghost'), TODAY);
 ok('a user with no contributions has no years',
   ghost.years.length === 0 && ghost.days.length === 0);
+
+// --- github.js -> contrib.js: real days into a grid ------------------------
+
+const y26 = daysForYear(gh.days, 2026, TODAY);
+const afterToday = y26.filter((d) => !d.void && d.date && d.date > TODAY);
+ok('daysForYear voids every day after today', afterToday.length === 0, String(afterToday.length));
+ok('daysForYear keeps today itself',
+  y26.some((d) => d.date === TODAY), 'no ' + TODAY);
+ok('daysForYear keeps the real counts',
+  y26.find((d) => d.date === '2026-09-07').count
+    === gh.days.find((d) => d.date === '2026-09-07').count);
+
+const lawn26 = createLawn(y26, { year: 2026 });
+ok('a lawn of real 2026 days counts only its non-void grass',
+  lawn26.mowable === lawn26.cells.filter((c) => !c.void && c.level > 0).length
+    && lawn26.mowable > 0, String(lawn26.mowable));
+ok('a lawn with grass left is not finished', lawn26.finished === false);
+ok('void cells cover the rest of the year (9 Sep - 31 Dec, 114 days)',
+  lawn26.cells.filter((c) => c.void).length > 113,
+  String(lawn26.cells.filter((c) => c.void).length));
+
+const empty26 = createLawn(daysForYear([], 2026, TODAY), { year: 2026 });
+ok('an empty year has nothing to mow', empty26.mowable === 0 && empty26.totalContributions === 0);
+ok('an empty year is born finished', empty26.finished === true);
+
+const roll = daysForRolling(gh.days);
+ok('daysForRolling fills 52 weeks', roll.length === COLS * ROWS, String(roll.length));
+ok('daysForRolling starts on a Sunday',
+  new Date(roll[0].date + 'T00:00:00').getDay() === 0, roll[0].date);
+ok('daysForRolling ends today at the latest',
+  roll[roll.length - 1].date <= isoDay(new Date()), roll[roll.length - 1].date);
+ok('daysForRolling has no repeats', new Set(roll.map((d) => d.date)).size === roll.length);
+ok('daysForRolling has no voids', roll.every((d) => !d.void && d.date));
+ok('daysForRolling picks up the days it knows',
+  roll.some((d) => d.count > 0));
 
 console.log(failures ? `\n${failures} FAILED` : '\nall good');
 process.exit(failures ? 1 : 0);

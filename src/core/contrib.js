@@ -1,10 +1,11 @@
-import { layoutYear } from './lawn.js';
+import { layoutYear, gridForRolling, isoDay } from './lawn.js';
 
-// Reading contribution data from GitHub.
+// Shaping contribution days into the grids the lawn is built from.
 //
-// GitHub renders the graph as a table of <td data-date="YYYY-MM-DD" data-level="0-4">
-// cells. In the extension we can read it straight off the profile page (no CORS).
-// In the demo page we need a proxy, because github.com doesn't send CORS headers.
+// The site fetches days from src/core/github.js; parseContributions below is the
+// other way in: GitHub renders the graph as a table of
+// <td data-date="YYYY-MM-DD" data-level="0-4"> cells, which a browser extension
+// can read straight off the profile page (no CORS, no API).
 
 /**
  * Parse contribution cells out of a GitHub profile page or the
@@ -40,24 +41,34 @@ export function parseContributions(htmlOrDoc) {
 }
 
 /**
- * Fetch contributions through a proxy you host (e.g. a Cloudflare Worker
- * or Vercel function that fetches github.com/users/<user>/contributions
- * and returns the HTML with CORS headers).
+ * Filter a parsed list down to one calendar year and pad it into GitHub's
+ * 53/54-column grid, with void cells before 1 Jan and after 31 Dec.
+ * @param today ISO date. Days after it become void too, because GitHub leaves
+ *   the rest of the current year blank rather than drawing empty squares.
+ * @returns one entry per grid cell, ready for createLawn(days, { year }).
  */
-export async function fetchContributions(username, proxyUrl) {
-  const res = await fetch(`${proxyUrl}?user=${encodeURIComponent(username)}`);
-  if (!res.ok) throw new Error(`Couldn't load contributions for ${username}`);
-  return parseContributions(await res.text());
+export function daysForYear(days, year, today = null) {
+  const inYear = days.filter((d) => d.date && Number(d.date.slice(0, 4)) === year);
+  const laid = layoutYear(inYear, year);
+  if (!today) return laid;
+  return laid.map((d) => (d.date && d.date > today
+    ? { date: null, level: 0, count: 0, void: true }
+    : d));
 }
 
 /**
- * Filter a parsed list down to one calendar year and pad it into GitHub's
- * 53/54-column grid, with void cells before 1 Jan and after 31 Dec.
- * @returns one entry per grid cell, ready for createLawn(days, { year }).
+ * The rolling last 52 weeks (364 cells, Sunday-aligned, ending today), filled
+ * from a day list keyed by ISO date. Missing days become empty, not void, so
+ * the API's 367-day y=last window and its UTC "tomorrow" both drop in cleanly.
+ * @returns one entry per grid cell, ready for createLawn(days, { year: null }).
  */
-export function daysForYear(days, year) {
-  const inYear = days.filter((d) => d.date && Number(d.date.slice(0, 4)) === year);
-  return layoutYear(inYear, year);
+export function daysForRolling(days) {
+  const byDate = new Map();
+  for (const d of days) if (d && d.date) byDate.set(d.date, d);
+  return gridForRolling().dates.map((d) => {
+    const iso = isoDay(d);
+    return byDate.get(iso) || { date: iso, level: 0, count: 0 };
+  });
 }
 
 /** Which calendar years a parsed list covers, newest first. */
