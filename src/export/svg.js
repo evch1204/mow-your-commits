@@ -109,11 +109,12 @@ const py = (z) => OY + z * PITCH - GAP / 2;
  * "colour|width"). A literal port of render2d's drawGrass + blade: the blades
  * are laid out first (so the two tallest of a level 3/4 day can take a darker
  * tip), then drawn, and every number comes from `grassFor(level, vigor)`.
+ * `mowed` is whether this picture shows the day cut, which is not `cell.mowed`:
+ * see `mowedFor` below.
  */
-function tuft(bag, dots, over, x, y, cell, season, theme, o, scale) {
+function tuft(bag, dots, over, x, y, cell, mowed, season, theme, o, scale) {
   const level = cell.level;
   if (cell.void || level === 0) return;
-  const mowed = cell.mowedX;
   const shrink = mowed ? 0.12 : 1;                    // mowT is 1 in a still
   const g = grassFor(level, cell.vigor || 0);
   const n = Math.max(1, Math.round(g.blades * (mowed ? 0.5 : 1)));
@@ -327,13 +328,7 @@ export function lawnToSvg(lawn, opts) {
   // gets an overgrown cover on top that fades when the mower reaches it.
   const route = o.animate && lawn.mowable > 0 ? planRoute(lawn, o.seed) : null;
 
-  // Which cells read as mowed in this picture. Never touches the lawn.
-  for (const c of lawn.cells) {
-    c.mowedX = c.void || c.level === 0 ? true
-      : route ? true
-        : o.asIs ? !!c.mowed
-          : (c.row * cols + c.col) < o.k;
-  }
+  const mowedX = mowedFor(lawn, o, route, cols);
 
   const parts = [];
 
@@ -383,14 +378,15 @@ export function lawnToSvg(lawn, opts) {
   const tiles = [];
   const caps = [];
   const cuts = [];
-  for (const c of lawn.cells) {
+  for (let i = 0; i < lawn.cells.length; i++) {
+    const c = lawn.cells[i];
     if (c.void) continue;
     const season = seasonOf(c.col);
     const x = tileX(c.col);
     const y = tileY(c.row);
-    tiles.push(tileRect(c, x, y, season, theme, c.mowedX));
-    caps.push(frostCap(c, x, y, season, c.mowedX));
-    if (c.mowedX && c.level > 0) {
+    tiles.push(tileRect(c, x, y, season, theme, mowedX[i]));
+    caps.push(frostCap(c, x, y, season, mowedX[i]));
+    if (mowedX[i] && c.level > 0) {
       cuts.push(lineD(x + 2, y + 6, x + CELL - 2, y + 6));
       cuts.push(lineD(x + 2, y + 11, x + CELL - 2, y + 11));
     }
@@ -406,9 +402,10 @@ export function lawnToSvg(lawn, opts) {
   const bag = new Map();
   const dots = new Map();
   const over = new Map();
-  for (const c of lawn.cells) {
+  for (let i = 0; i < lawn.cells.length; i++) {
+    const c = lawn.cells[i];
     if (c.void || !c.level) continue;
-    tuft(bag, dots, over, tileX(c.col), tileY(c.row), c, seasonOf(c.col), theme, o, 1);
+    tuft(bag, dots, over, tileX(c.col), tileY(c.row), c, mowedX[i], seasonOf(c.col), theme, o, 1);
   }
   parts.push(strokes('grass', bag));
 
@@ -470,8 +467,26 @@ export function lawnToSvg(lawn, opts) {
     + `src:url(data:font/woff2;base64,${PATRICK_HAND_WOFF2_B64}) format('woff2')}`
     + `text{font-family:${FONT_STACK}}</style>`;
 
-  for (const c of lawn.cells) delete c.mowedX;
   return head + parts.join('') + '</svg>';
+}
+
+/**
+ * Which cells read as mowed in this picture, by cell index. Not `cell.mowed`:
+ * a still is cut to a fraction in row-major order, and the animation draws the
+ * whole year cut and puts the overgrown covers back on top. Kept here rather
+ * than stamped on the cells, so the lawn handed in is never touched.
+ */
+function mowedFor(lawn, o, route, cols) {
+  const out = new Uint8Array(lawn.cells.length);
+  for (let i = 0; i < lawn.cells.length; i++) {
+    const c = lawn.cells[i];
+    const mowed = c.void || c.level === 0 ? true
+      : route ? true
+        : o.asIs ? !!c.mowed
+          : (c.row * cols + c.col) < o.k;
+    out[i] = mowed ? 1 : 0;
+  }
+  return out;
 }
 
 /**
@@ -643,10 +658,10 @@ function coverGroup(lawn, theme, o, route, timing, seasonOf) {
     const dots = new Map();
     const over = new Map();
     const grown = {
-      col: c.col, row: c.row, level: c.level, void: false, mowedX: false,
+      col: c.col, row: c.row, level: c.level, void: false,
       vigor: c.vigor || 0, heroic: c.heroic,
     };
-    tuft(bag, dots, over, x, y, grown, season, theme, o, 1);
+    tuft(bag, dots, over, x, y, grown, false, season, theme, o, 1);
     // planRoute guarantees a cut for every mowable cell, and the route always
     // starts off the board, so t is never 0. keyTimes still has to be strictly
     // increasing and end at exactly 1, so the snap that follows t must not
@@ -722,12 +737,9 @@ function legend(lawn, theme, o) {
   for (let l = 0; l <= 4; l++) {
     const x = x0 + l * PITCH;
     // level 0 shows mowed, so the key opens on the bare tile the graph uses
-    const fake = {
-      col: l, row: 0, level: l, count: 0, void: false,
-      vigor: 0.5, heroic: false, mowed: l === 0, mowedX: l === 0,
-    };
+    const fake = { col: l, row: 0, level: l, void: false, vigor: 0.5, heroic: false };
     tiles.push(tileRect(fake, x, y, season, theme, l === 0));
-    tuft(bag, dots, over, x, y, fake, season, theme, o, GEOM.LEGEND_SCALE);
+    tuft(bag, dots, over, x, y, fake, l === 0, season, theme, o, GEOM.LEGEND_SCALE);
   }
   const text = (x, anchor, str) =>
     `<text x="${n2(x)}" y="${n2(midY)}" text-anchor="${anchor}"`
