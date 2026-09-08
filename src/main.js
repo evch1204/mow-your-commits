@@ -1,6 +1,6 @@
 import {
   createLawn, resetLawn, placeMower, tick, progress, monthAt, seasonIndexAt,
-  describeCell, formatTime, assignLevels, isoDay,
+  describeCell, formatTime, tempAt, periodLabel, assignLevels, isoDay,
   MONTH_NAMES, SEASON_WORD, ROWS, DEFAULT_SEED,
 } from './core/lawn.js';
 import { daysForYear, daysForRolling } from './core/contrib.js';
@@ -206,7 +206,12 @@ function pickYear(y) {
 function refreshTotals() {
   $('total').textContent = nf.format(lawn.totalContributions);
   $('ctotal').textContent = nf.format(lawn.totalContributions);
-  $('span').textContent = year === null ? 'in the last year' : 'in ' + year;
+  $('span').textContent = periodLabel(lawn);
+}
+
+/** "-2 °C" with a real minus sign, so the HUD lines up. */
+function degrees(t) {
+  return (t < 0 ? '−' : '') + Math.abs(t) + ' °C';
 }
 
 // --- actions -------------------------------------------------------------
@@ -224,12 +229,11 @@ function regrow() {
 }
 
 function copyBrag() {
-  const when = year === null ? 'this year' : String(year);
   const whose = source
     ? (/s$/i.test(source.login) ? source.login + "'" : source.login + "'s")
     : 'my';
-  const text = `I mowed ${whose} GitHub lawn: ${nf.format(lawn.totalContributions)} contributions`
-    + ` from ${when} in ${formatTime(lawn.time)} - mow-your-commits`;
+  const text = `I mowed ${whose} GitHub lawn: ${nf.format(lawn.totalContributions)} contributions `
+    + `${periodLabel(lawn)}, cut in ${formatTime(lawn.time)} · mow-your-commits`;
   const btn = $('brag');
   const done = () => { btn.textContent = 'copied!'; setTimeout(() => { btn.textContent = 'copy brag'; }, 1600); };
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -251,9 +255,12 @@ if (startDist) deep.setDistance(startDist);
 if (startCol !== null && !Number.isNaN(startCol)) placeMower(lawn, startCol);
 
 function updateHud(dt) {
-  $('pct').textContent = Math.round(progress(lawn) * 100) + '%';
+  const pct = Math.round(progress(lawn) * 100);
+  $('pct').textContent = pct + '%';
+  $('barfill').style.width = pct + '%';
   $('month').textContent = MONTH_NAMES[monthAt(lawn, lawn.mower.x)];
   $('weather').textContent = SEASON_WORD[seasonIndexAt(lawn, lawn.mower.x)];
+  $('temp').textContent = degrees(tempAt(lawn, lawn.mower.x));
   $('cmowed').textContent = nf.format(lawn.mowedContributions);
   $('timer').textContent = formatTime(lawn.time);
 
@@ -265,8 +272,9 @@ function updateHud(dt) {
   // an account can have a year with nothing in it: that is not a win
   if (lawn.finished && lawn.mowable > 0 && !endShown) {
     endShown = true;
-    $('endline').textContent = `${nf.format(lawn.totalContributions)} contributions`
-      + ` - ${lawn.cols} weeks - ${formatTime(lawn.time)}`;
+    $('endline').textContent = `${nf.format(lawn.totalContributions)} contributions `
+      + `${periodLabel(lawn)} · mowed in ${formatTime(lawn.time)}`;
+    $('endnote').textContent = `${lawn.cols} weeks · ${lawn.rows} rows · 1 riding mower`;
     endcard.hidden = false;
     confetti();
   }

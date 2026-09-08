@@ -17,25 +17,62 @@
     }
     * { box-sizing: border-box; }
     body {
-      margin: 0; background: var(--paper); color: var(--ink);
+      margin: 0; color: var(--ink);
+      background: radial-gradient(ellipse 120% 80% at 50% 10%,
+        #FDFBF5 0%, #FBF9F2 50%, #F0EBDC 100%) fixed;
       font-family: 'Patrick Hand', 'Comic Sans MS', cursive; font-size: 18px;
+      line-height: 1.25;
       display: flex; flex-direction: column; align-items: center;
-      padding: 26px 16px 40px; gap: 10px;
-      width: 100%; overflow-x: hidden;
+      padding: 26px 16px 40px; gap: 12px;
+      width: 100%; min-height: 100vh; overflow-x: hidden;
       -webkit-tap-highlight-color: transparent;
     }
-    h1 { font-size: 30px; font-weight: 400; margin: 0; display: flex; align-items: center; gap: 10px; }
+    /* paper grain, so the whole page reads as one sheet the lawn is drawn on */
+    body::before {
+      content: ''; position: fixed; inset: 0; pointer-events: none; opacity: .28;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .2 0 0 0 0 .18 0 0 0 0 .12 0 0 0 .35 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    /* a soft ground wash at the foot of the page */
+    body::after {
+      content: ''; position: fixed; left: 0; right: 0; bottom: 0; height: 180px;
+      background: linear-gradient(to bottom, transparent, #E9EFDD);
+      pointer-events: none; z-index: -1;
+    }
+    h1 {
+      font-size: 34px; font-weight: 400; margin: 0; letter-spacing: .2px;
+      display: flex; align-items: center; gap: 10px;
+      text-decoration: underline wavy #97C459; text-underline-offset: 6px;
+      text-decoration-thickness: 3px;
+    }
     h1 svg { display: block; }
-    .lede { margin: 0; font-size: 20px; color: var(--pencil); }
+    .lede { margin: 0; font-size: 22px; color: var(--pencil); }
     .lede b { font-weight: 400; color: var(--ink); }
 
-    .wrap { width: min(1040px, 100%); display: flex; flex-direction: column; gap: 8px; }
+    .wrap { width: min(1040px, 100%); display: flex; flex-direction: column; gap: 10px; }
+
+    /* the HUD strip: where you are, how far in, what you have found, how long */
     .stats {
-      display: flex; flex-wrap: wrap; gap: 4px 18px; justify-content: space-between;
+      background: var(--cream); border: 2px solid var(--ink); border-radius: 10px;
+      padding: 5px 14px 6px;
+      display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.4fr) auto auto;
+      gap: 4px 18px; align-items: center;
       font-size: 17px; color: var(--pencil);
+      transform: rotate(-.25deg);
+      box-shadow: 3px 4px 0 rgba(44, 44, 42, .12);
     }
     .stats span { white-space: nowrap; }
-    .stats b { font-weight: 400; color: var(--green); }
+    .stats span + span { border-left: 1.5px solid rgba(44, 44, 42, .16); padding-left: 18px; }
+    .stats b { font-weight: 400; color: var(--green); white-space: nowrap; }
+    .bar {
+      display: inline-block; width: clamp(80px, 12vw, 160px); height: 10px;
+      border: 1.5px solid var(--ink); border-radius: 6px; background: #FFFDF6;
+      vertical-align: -1px; overflow: hidden;
+    }
+    #barfill {
+      display: block; height: 100%; width: 0;
+      background: repeating-linear-gradient(90deg, #40C463 0 6px, #30A14E 6px 12px);
+      transition: width .2s;
+    }
 
     /* the loader: type a username, get your own lawn */
     .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -73,34 +110,41 @@
 
     #stage {
       position: relative; flex: 1 1 auto; min-width: 0;
-      border: 2px solid var(--ink); border-radius: 12px; overflow: hidden;
+      border: 2px solid var(--ink); border-radius: 14px; overflow: hidden;
       background: var(--paper); outline: none; cursor: crosshair;
+      box-shadow: 4px 5px 0 rgba(44, 44, 42, .14);
       touch-action: none;
+    }
+    /* in flat view the canvas draws its own inked bed, so no second frame */
+    body[data-view="flat"] #stage {
+      border-color: transparent; background: transparent; box-shadow: none;
     }
     #stage:focus-visible { box-shadow: 0 0 0 3px #97C459; }
     canvas { display: block; width: 100%; }
-    #deep { height: 460px; }
+    #deep { height: clamp(360px, 46vw, 560px); }
     body[data-view="flat"] #deep, body[data-view="deep"] #flat { display: none; }
     body[data-view="deep"] #stage { cursor: grab; }
 
     #years {
       flex: 0 0 auto; display: flex; flex-direction: column; gap: 5px;
-      max-height: 460px; overflow: auto;
+      max-height: clamp(360px, 46vw, 560px); overflow: auto;
     }
     #years button {
-      min-width: 88px; text-align: left; padding: 2px 12px 4px;
-      border-radius: 8px; font-size: 17px; background: transparent; border: 2px solid transparent;
+      min-width: 96px; text-align: left; padding: 3px 12px 5px;
+      border-radius: 8px; font-size: 17px; background: transparent;
+      border: 2px solid transparent; box-shadow: none;
     }
     #years button:hover { background: var(--cream); }
     #years button[aria-pressed="true"] {
-      background: #97C459; border-color: var(--ink);
+      background: #97C459; border-color: var(--ink); transform: rotate(-1deg);
     }
 
     /* last mowed day. The flat view draws its own tag on the canvas. */
     #tag {
       position: absolute; left: 10px; bottom: 10px; max-width: calc(100% - 20px);
-      background: var(--cream); border: 2px solid var(--ink); border-radius: 9px;
-      padding: 2px 12px 4px; font-size: 17px; line-height: 1.4;
+      background: var(--cream); border: 2px solid var(--ink); border-radius: 10px;
+      padding: 3px 12px 5px; font-size: 17px; line-height: 1.4;
+      box-shadow: 2px 3px 0 rgba(44, 44, 42, .14);
       transform: rotate(-0.6deg); pointer-events: none;
     }
     #tag[hidden], body[data-view="flat"] #tag { display: none; }
@@ -108,16 +152,21 @@
     /* end card */
     #endcard {
       position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-      background: rgba(251, 249, 242, .52); padding: 16px;
+      background: rgba(251, 249, 242, .6); backdrop-filter: blur(2px); padding: 16px;
     }
     #endcard[hidden] { display: none; }
     .card {
-      background: var(--cream); border: 3px solid var(--ink); border-radius: 16px;
-      padding: 18px 28px 22px; text-align: center; transform: rotate(-1deg);
+      background: var(--cream); border: 3px solid var(--ink); border-radius: 18px;
+      padding: 22px 32px 26px; text-align: center; transform: rotate(-1deg);
       box-shadow: 5px 6px 0 rgba(44, 44, 42, .18);
     }
-    .card h2 { margin: 0 0 4px; font-size: 30px; font-weight: 400; }
-    .card p { margin: 0 0 14px; font-size: 19px; color: var(--pencil); }
+    .card h2 {
+      margin: 0 0 6px; font-size: 34px; font-weight: 400;
+      text-decoration: underline wavy #97C459; text-underline-offset: 6px;
+      text-decoration-thickness: 3px;
+    }
+    .card p { margin: 0 0 6px; font-size: 20px; color: var(--pencil); }
+    .card .note { margin: 0 0 16px; font-size: 17px; }
     .cardbtns { display: flex; gap: 10px; justify-content: center; }
 
     .controls {
@@ -125,11 +174,13 @@
       width: min(1040px, 100%);
     }
     button {
-      font: inherit; background: var(--cream); border: 2px solid var(--ink);
+      font: inherit; font-size: 18px; background: var(--cream); border: 2px solid var(--ink);
       border-radius: 9px; padding: 3px 14px 5px; cursor: pointer; color: inherit;
+      box-shadow: 2px 2px 0 rgba(44, 44, 42, .18);
     }
-    button:active { transform: translate(1px, 1px); }
+    button:active { transform: translate(2px, 2px); box-shadow: none; }
     button[aria-pressed="true"] { background: #97C459; }
+    #brag { background: #97C459; }
     .hint { color: var(--pencil); font-size: 16px; }
 
     /* on-screen pad for touch */
@@ -150,20 +201,34 @@
       #loader { font-size: 15px; }
       #user { flex: 1 1 200px; width: auto; }
       #loadstate { flex-basis: 100%; }
-      h1 { font-size: 24px; }
-      .lede { font-size: 17px; }
-      .stats { font-size: 15px; gap: 2px 14px; }
+      h1 { font-size: 26px; }
+      .lede { font-size: 18px; }
+      .stats {
+        font-size: 15px; gap: 2px 14px; padding: 5px 11px 6px;
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+      .stats span { white-space: normal; }
+      .stats span:nth-child(odd) { border-left: 0; padding-left: 0; }
+      button { font-size: 17px; }
+      #tag { font-size: 15px; }
+      .card { padding: 16px 20px 20px; }
+      .card h2 { font-size: 28px; }
+      .card p { font-size: 17px; }
+      .card .note { font-size: 15px; }
       .hint { display: none; }
       .board { flex-direction: column; }
       #stage { width: 100%; overflow-x: auto; overflow-y: hidden; }
       #flat { min-width: 680px; }
-      #deep { height: 340px; }
+      #deep { height: 360px; }
       #years {
         flex-direction: row; width: 100%; max-height: none;
         overflow-x: auto; overflow-y: hidden; padding-bottom: 2px;
       }
       /* a real account brings 16+ years: let the row scroll, never squash a label */
-      #years button { flex: 0 0 auto; min-width: 0; text-align: center; white-space: nowrap; border-color: var(--ink); background: var(--cream); }
+      #years button {
+        flex: 0 0 auto; min-width: 0; text-align: center; white-space: nowrap;
+        border-color: var(--ink); background: var(--cream);
+      }
       #pad button { width: 66px; height: 58px; }
     }
 
@@ -205,8 +270,8 @@
     </form>
 
     <div class="stats">
-      <span>driving through <b id="month">January</b> &middot; <b id="weather">fresh</b></span>
-      <span>mowed <b id="pct">0%</b></span>
+      <span>driving through <b id="month">January</b> &middot; <b id="weather">snowing</b> &middot; <b id="temp">&minus;2 &deg;C</b></span>
+      <span>mowed <b id="pct">0%</b> <i class="bar" aria-hidden="true"><b id="barfill"></b></i></span>
       <span>contributions <b id="cmowed">0</b> / <b id="ctotal">0</b></span>
       <span>time <b id="timer">0:00</b></span>
     </div>
@@ -220,6 +285,7 @@
           <div class="card">
             <h2>Lawn mowed!</h2>
             <p id="endline"></p>
+            <p class="note" id="endnote"></p>
             <div class="cardbtns">
               <button id="regrow2">regrow</button>
               <button id="brag">copy brag</button>
