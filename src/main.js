@@ -182,13 +182,19 @@ function announceEmpty() {
   setStatus('ok', 'nothing grew in ' + when + ' - pick another year');
 }
 
+/** Keep ?year= pointing at the year actually on screen, wherever it changed. */
+function setYearParam() {
+  const url = new URL(location.href);
+  if (year === null) url.searchParams.delete('year');
+  else url.searchParams.set('year', String(year));
+  history.replaceState(null, '', url);
+}
+
 function pickYear(y) {
   if (y === year) return;
   year = y;
   swapLawn(lawnFor(y));
-  const url = new URL(location.href);
-  if (y === null) url.searchParams.delete('year'); else url.searchParams.set('year', String(y));
-  history.replaceState(null, '', url);
+  setYearParam();
   announceEmpty();
   stage.focus();
 }
@@ -345,10 +351,14 @@ initLoader({
   onData(data) {
     source = data;
     years = [null, ...data.years].slice(0, 21);   // GitHub started in 2008
-    if (years.includes(askedYear)) year = askedYear;
+    // ?year= is the page's opening request, not a standing order: honour it for
+    // the first account, then leave whatever the visitor picked alone.
+    const first = !loadedOnce++;
+    if (first && years.includes(askedYear)) year = askedYear;
     else if (!years.includes(year)) year = null;
     buildYears();
-    swapLawn(lawnFor(year), { first: !loadedOnce++ });
+    swapLawn(lawnFor(year), { first });
+    setYearParam();
     announceEmpty();
   },
   onDemo() {
@@ -357,6 +367,7 @@ initLoader({
     if (!years.includes(year)) year = null;
     buildYears();
     swapLawn(lawnFor(year));
+    setYearParam();
   },
 });
 
