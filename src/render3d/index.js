@@ -241,7 +241,10 @@ export class Renderer3D {
     this.scene.add(this.sky);
     this.scene.fog = new THREE.Fog(new THREE.Color(SKY_HORIZON[2]), 26, 110);
   }
-  /** The four faces of a doodle tree: bare, in leaf, in autumn, under snow. */
+  /**
+   * The three faces of a doodle tree: bare (which only ever shows in winter,
+   * so it carries its own snow line), in leaf, and in autumn.
+   */
   treeTextures() {
     if (this.treeTex) return this.treeTex;
     const branches = (c) => {
@@ -264,24 +267,24 @@ export class Renderer3D {
       c.fill(); c.stroke();
     };
     this.treeTex = {
-      bare: this.canvasTexture(128, 128, (c) => { c.clearRect(0, 0, 128, 128); branches(c); }),
-      leafy: this.canvasTexture(128, 128, canopy('#5C8F3A')),
-      autumn: this.canvasTexture(128, 128, canopy('#EF9F27')),
-      snow: this.canvasTexture(128, 128, (c) => {
+      bare: this.canvasTexture(128, 128, (c) => {
         c.clearRect(0, 0, 128, 128);
-        c.lineWidth = 5; c.lineCap = 'round';
-        c.strokeStyle = 'rgba(255,255,255,0.85)';
+        branches(c);
+        c.lineWidth = 4; c.lineCap = 'round';
+        c.strokeStyle = 'rgba(255,255,255,0.55)';
         c.beginPath();
         c.moveTo(64, 84); c.lineTo(40, 54);
         c.moveTo(64, 72); c.lineTo(90, 39);
         c.moveTo(64, 58); c.lineTo(53, 24);
         c.stroke();
       }),
+      leafy: this.canvasTexture(128, 128, canopy('#5C8F3A')),
+      autumn: this.canvasTexture(128, 128, canopy('#EF9F27')),
     };
     return this.treeTex;
   }
 
-  /** One tree is four stacked sprites; the season decides which one you see. */
+  /** One tree is three stacked sprites; the season decides which one you see. */
   addTree(x, y, z, s, parent) {
     const t = this.treeTextures();
     const mk = (tex) => {
@@ -289,7 +292,7 @@ export class Renderer3D {
       sp.material.opacity = 0;
       return sp;
     };
-    const tree = { bare: mk(t.bare), leafy: mk(t.leafy), autumn: mk(t.autumn), snow: mk(t.snow) };
+    const tree = { bare: mk(t.bare), leafy: mk(t.leafy), autumn: mk(t.autumn) };
     this.trees.push(tree);
     return tree;
   }
@@ -1133,7 +1136,7 @@ export class Renderer3D {
     this.coldSun.visible = wm[0] > 0.02;
     this.coldSun.position.set(tx + 11, camY + 0.3, this.fenceZ - 9);
     this.coldSun.scale.setScalar(4.0);
-    // the trees are wherever the year is: bare, in leaf, in autumn, snow-lined
+    // the trees are wherever the year is: snow-lined and bare, in leaf, in autumn
     const inLeaf = clamp(wm[1] + wm[2], 0, 1);
     for (const t of this.trees) {
       t.bare.material.opacity = wm[0];
@@ -1142,8 +1145,6 @@ export class Renderer3D {
       t.leafy.visible = inLeaf > 0.01;
       t.autumn.material.opacity = wm[3];
       t.autumn.visible = wm[3] > 0.01;
-      t.snow.material.opacity = wm[0] * 0.4;
-      t.snow.visible = wm[0] > 0.01;
     }
 
     const cloudy = clamp(wm[1] + wm[3] + wm[0] * 0.6, 0, 1);

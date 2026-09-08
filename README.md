@@ -8,17 +8,28 @@ hedge you can barely see the tile through, level 0 is bare dirt. Driving over a 
 it back to its exact GitHub green and pops up `+12` for the contributions you just found.
 Mowing *is* the reveal.
 
+Grass reads the *count*, not just the level: each day carries a `vigor` (where its count
+sits inside its own level's range), so a 40-contribution day grows taller, denser and
+darker than a 12 in the same green. The top 3% of your days are `heroic` and put up a
+dandelion until you mow them.
+
 Two renderers share one model:
 
-- `src/core/` — the lawn itself. Cells, mower physics, mowing detection, seasons, the
-  shared colour palette. No DOM, no rendering.
+- `src/core/` — the lawn itself. Cells, mower physics, mowing detection, seasons,
+  temperature by month, and the shared colour palette including `GRASS`/`grassFor`, the
+  blade grammar both renderers draw from. No DOM, no rendering.
 - `src/render2d/` — hand-drawn canvas version at the proportions of the real graph:
-  52x7 rounded tiles, month labels on top, Mon/Wed/Fri down the left, legend bottom right.
+  52x7 rounded tiles on a dirt bed whose colour follows the climate of each column, month
+  labels with a season doodle on top, Mon/Wed/Fri down the left, legend bottom right. The
+  whole year's weather is on screen at once: snow over the winter columns, blossom over
+  spring, rising dandelion fluff over summer, leaves over autumn.
 - `src/render3d/` — Three.js version with cel shading, ink outlines, a "boiling" wobble
-  shader and wind sway. Instanced tiles plus four tuft builds, one per level. A riding
-  mower with a driver, and weather that follows you: drive into winter and it starts
-  snowing, into autumn and the leaves come down. Chase cam you can drag to look around,
-  or press `C` for the overview shot of the whole year.
+  shader and wind sway. Instanced tiles plus four tuft builds, one per level, scaled by
+  the day's count. A gradient sky dome, distance fog, hills, trees that go bare, green,
+  gold and snow-lined with the season, and a sun that climbs in summer and sits pale and
+  low in winter. A riding mower with a driver, and weather that follows you: drive into
+  winter and it starts snowing, into autumn and the leaves come down. Chase cam you can
+  drag to look around, or press `C` for the overview shot of the whole year.
 
 Type a GitHub username in the box above the lawn and it becomes that account's real
 graph. Pick a year from the list beside the lawn, just like on a GitHub profile: the
@@ -47,6 +58,22 @@ node scripts/smoke.mjs # pure-node assertions over the sim + the data layer
 node scripts/smoke.mjs --live torvalds   # also hits the real contributions API
 ```
 
+### Screenshots
+
+```
+npm run build
+npx vite preview --port 4173 --strictPort
+chrome --headless=new --disable-gpu --use-gl=angle --use-angle=swiftshader \
+  --enable-unsafe-swiftshader --hide-scrollbars --window-size=1000,900 \
+  --virtual-time-budget=6000 --screenshot=out.png \
+  "http://localhost:4173/?view=flat&autodrive=1"
+```
+
+Headless Chrome clamps its window to 500px wide, so `--window-size=390,844` quietly
+lies about phone width. For a real 390px shot, point it at a local file holding
+`<iframe width="390" height="844" src="http://localhost:4173/?view=flat">` and use
+`--window-size=500,844`.
+
 ### URL flags
 
 | flag | what it does |
@@ -55,7 +82,7 @@ node scripts/smoke.mjs --live torvalds   # also hits the real contributions API
 | `?year=2025` | pick a calendar year instead of the rolling 52 weeks |
 | `?user=torvalds` | load a real account (a login, not a URL) |
 | `?seed=123` | a different fake year (deterministic), demo lawn only |
-| `?autodrive=1` | debug: holds the gas, useful for headless screenshots |
+| `?autodrive=1` | debug: drives a demo lap down the year and back, for headless screenshots |
 | `?cam=overview` | debug: start the 3D view on the overview camera |
 | `?start=30` | debug: park the mower in a column (drive into a season) |
 | `?yaw=45`, `?dist=6` | debug: preset look-around angle and camera distance |
