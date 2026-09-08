@@ -3,11 +3,11 @@
 import {
   createLawn, resetLawn, tick, progress, COLS, ROWS, MAX_COLS,
   describeCell, formatTime, formatDay, periodLabel, tempAt,
-  gridForYear, layoutYear, placeMower, isoDay,
+  gridForYear, gridForRolling, layoutYear, placeMower, isoDay,
 } from '../src/core/lawn.js';
 import {
-  GRASS, grassFor, tileColor, bladeColor, hexToRgb, mix, SEASON_TINT, DANDELION, GITHUB,
-  BARE,
+  GRASS, grassFor, tileColor, bladeColor, cellTint, hexToRgb, mix, SEASON_TINT,
+  DANDELION, GITHUB, BARE, NO_SEASON,
 } from '../src/core/palette.js';
 import { planRoute } from '../src/core/route.js';
 import { GEOM } from '../src/core/board.js';
@@ -20,6 +20,9 @@ import {
   fetchContributions, readCache, writeCache, CACHE_TTL, STALE_OK, MAX_CACHED,
   normaliseGraphql, fetchViaGraphql, GQL_LEVEL, TOKEN_PREFIX,
 } from '../src/core/github.js';
+import {
+  parseArgs, splitOutputs, parseOutput, OPTION_KEYS,
+} from './render-svg.mjs';
 import { readFileSync } from 'node:fs';
 
 const fixture = (name) =>
@@ -705,6 +708,75 @@ ok('dark uses the GitHub dark ramp',
   SEASON_TINT.some(([t, a]) => darkSvg.includes(mix(THEMES.dark.greens[4], t, a))));
 ok('dark drops the paper colour', !darkSvg.includes('#FBF9F2'));
 
+ok('the two themes carry the same fields',
+  Object.keys(THEMES.light).sort().join(',') === Object.keys(THEMES.dark).sort().join(','),
+  Object.keys(THEMES.light).sort().join(',') + ' vs ' + Object.keys(THEMES.dark).sort().join(','));
+
+// --- the file is well-formed XML ------------------------------------------
+// Nothing here parses the SVG it writes, so a stray quote or an unclosed <g>
+// would only show up as a blank picture in somebody's README. Walk the tags:
+// every one is opened and closed in order, and every attribute is quoted.
+
+const TAG = /<(\/?)([A-Za-z][\w-]*)((?:\s+[\w:-]+="[^"<>]*")*)\s*(\/?)>/g;
+function malformed(doc) {
+  const stack = [];
+  let at = 0;
+  let m;
+  TAG.lastIndex = 0;
+  while ((m = TAG.exec(doc)) !== null) {
+    const between = doc.slice(at, m.index);
+    if (/[<>]/.test(between)) return 'unparsed markup: ' + JSON.stringify(between.slice(0, 70));
+    at = TAG.lastIndex;
+    if (m[1]) {
+      const want = stack.pop();
+      if (want !== m[2]) return `</${m[2]}> closes <${want}>`;
+    } else if (!m[4]) {
+      stack.push(m[2]);
+    }
+  }
+  if (/[<>]/.test(doc.slice(at))) return 'trailing markup';
+  if (stack.length) return 'never closed: <' + stack.join('>, <') + '>';
+  return '';
+}
+
+ok('the scan can tell a broken document from a good one',
+  malformed('<a x="1"><b/></a>') === '' && malformed('<a><b/>') !== ''
+    && malformed('<a x=1/>') !== '' && malformed('<a></b>') !== '');
+for (const [name, doc] of [
+  ['still', svg],
+  ['dark', darkSvg],
+  ['plain', lawnToSvg(svgLawn, { weather: false, background: false })],
+]) {
+  ok(`the ${name} svg is well-formed`, malformed(doc) === '', malformed(doc));
+}
+
+// --- everything a stranger can put in the picture goes through esc() -------
+
+const hostile = lawnToSvg(svgLawn, { user: '"><script>alert(1)</script>' });
+ok('a hostile --user cannot open a tag',
+  !hostile.includes('<script') && hostile.includes('@&quot;&gt;&lt;script&gt;'),
+  hostile.slice(hostile.indexOf('<title>'), hostile.indexOf('<title>') + 90));
+ok('a hostile --user leaves the file well-formed', malformed(hostile) === '', malformed(hostile));
+const amp = lawnToSvg(svgLawn, { caption: 'a & b' });
+ok('an ampersand in a caption is escaped',
+  amp.includes('>a &amp; b<') && !/>a & b</.test(amp));
+ok('a hostile caption is escaped too',
+  !lawnToSvg(svgLawn, { caption: '<b>x</b>' }).includes('<b>x</b>'));
+
+// --- cellTint really reaches the picture ----------------------------------
+// The plain chart has one season for every column, so a level's blade colour
+// is constant and cellTint's two outcomes are the only variation left.
+
+const plainBlade = bladeColor(4, NO_SEASON, THEMES.light);
+const lifted = cellTint(plainBlade, 0, 0);
+const sunk = cellTint(plainBlade, 1, 0);
+ok('cellTint pulls two ways', lifted !== sunk && lifted !== plainBlade && sunk !== plainBlade,
+  `${plainBlade} -> ${lifted} / ${sunk}`);
+const plainForTint = lawnToSvg(svgLawn, { weather: false, background: false });
+ok('both cellTint shades are drawn',
+  plainForTint.includes(lifted) && plainForTint.includes(sunk),
+  `${lifted}:${plainForTint.includes(lifted)} ${sunk}:${plainForTint.includes(sunk)}`);
+
 ok('svg is deterministic', lawnToSvg(svgLawn) === svg);
 ok('svg stays under 200 kB', svg.length < 200000, `${svg.length}`);
 ok('caption names the total',
@@ -796,8 +868,25 @@ ok('animate still loads nothing external',
   !/https?:\/\//.test(animSvg.replace(/xmlns="[^"]*"/, '')));
 ok('animate ignores mowed: the loop always starts fully grown',
   lawnToSvg(svgLawn, { animate: true, mowed: 1 }) === animSvg);
+ok('the animated svg is well-formed', malformed(animSvg) === '', malformed(animSvg));
 // the covers cannot batch by colour, so the animated file is much bigger
-ok('the animated svg stays under 450 kB', animSvg.length < 450000, `${animSvg.length}`);
+ok('the animated demo svg stays under 450 kB', animSvg.length < 450000, `${animSvg.length}`);
+
+// The demo year is a normal one. The worst case a real account can hand the
+// Action is every day at level 4, which is one cover per cell with the most
+// blades any level draws: ~780 kB today. Cap it where a README embed is still
+// reasonable, and where a change that doubles the per-cell cost would trip.
+const denseDays = gridForRolling().dates.map((d) => ({ date: isoDay(d), count: 40, level: 4 }));
+const denseLawn = createLawn(denseDays, { year: null });
+ok('the dense lawn really is dense',
+  denseLawn.mowable === COLS * ROWS && denseLawn.cells.every((c) => c.level === 4),
+  `${denseLawn.mowable} of ${COLS * ROWS}`);
+const denseSvg = lawnToSvg(denseLawn, { animate: true });
+ok('a fully dense year stays under 900 kB', denseSvg.length < 900000,
+  `${(denseSvg.length / 1024).toFixed(0)} kB`);
+ok('a fully dense year is well-formed', malformed(denseSvg) === '', malformed(denseSvg));
+ok('a fully dense year still cuts every day',
+  (denseSvg.match(/<animate attributeName="opacity"/g) || []).length === COLS * ROWS);
 
 // --- weather=0 and bg=0: the plain chart ----------------------------------
 
@@ -850,7 +939,7 @@ ok('a path separator never reaches a filename', snip('a/../../b') === 'a');
 ok('nothing sane in, nothing out', snip('') === 'YOUR-USERNAME' && snip(null) === 'YOUR-USERNAME');
 ok('the snippet only ever carries a login',
   !/["'<>\s]/.test((/githubusercontent\.com\/(\S+)\/output/.exec(markdownSnippet('a b<c'))
-    || [, 'x"'])[1]), markdownSnippet('a b<c').slice(0, 120));
+    || ['', 'x"'])[1]), markdownSnippet('a b<c').slice(0, 120));
 ok('no user means a placeholder', markdownSnippet('').includes('/YOUR-USERNAME/YOUR-USERNAME/'));
 ok('the share link carries the login', shareUrl('a-b', '') === SITE + '?user=a-b');
 // a share link reproduces the lawn on screen: the live query string, minus
@@ -876,7 +965,7 @@ ok('the plain site is the fallback', shareUrl('', '') === SITE);
 const indexHtml = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const mainJs = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 const rule = (sel) => (new RegExp(sel.replace(/[.#]/g, '\\$&') + '\\s*\\{([^}]*)\\}')
-  .exec(indexHtml) || [, ''])[1];
+  .exec(indexHtml) || ['', ''])[1];
 
 ok('the end card overlay scrolls rather than clipping its buttons',
   /overflow:\s*auto/.test(rule('#endcard')), rule('#endcard').trim().slice(0, 80));
@@ -896,6 +985,67 @@ ok('the page body carries data-view', /<body[^>]*\sdata-view=/.test(indexHtml));
 ok('only the buttons are treated as the view toggle',
   !/querySelectorAll\('\[data-view\]'\)/.test(mainJs)
   && (mainJs.match(/querySelectorAll\('button\[data-view\]'\)/g) || []).length === 2);
+
+// --- what the Action reads off an output line -----------------------------
+// Every option in action/README.md's table, because a typo here is only
+// visible as the wrong picture landing in somebody's profile a day later.
+
+const args = parseArgs(['node', 'render-svg.mjs', '--demo', '--user', 'torvalds',
+  '--outputs', 'a.svg\nb.svg?theme=dark', '--cwd', 'out']);
+ok('parseArgs reads the flags',
+  args.demo === true && args.user === 'torvalds' && args.cwd === 'out'
+    && args.outputs === 'a.svg\nb.svg?theme=dark');
+ok('parseArgs defaults the outputs to the two README pictures',
+  parseArgs(['node', 'render-svg.mjs']).outputs.includes('dist/lawn.svg?animate=1')
+    && parseArgs(['node', 'render-svg.mjs']).outputs.includes('theme=dark'));
+ok('parseArgs leaves --demo off by default', parseArgs(['node', 'x']).demo === undefined);
+
+ok('splitOutputs takes a YAML block', splitOutputs('  a.svg \n\n b.svg?bg=0 \n').join('|')
+  === 'a.svg|b.svg?bg=0', splitOutputs('  a.svg \n\n b.svg?bg=0 \n').join('|'));
+ok('splitOutputs takes a shell\'s literal backslash-n',
+  splitOutputs('a.svg\\nb.svg').join('|') === 'a.svg|b.svg');
+ok('splitOutputs drops empties', splitOutputs('').length === 0 && splitOutputs(null).length === 0);
+
+const opt = (line) => parseOutput(line).opts;
+ok('parseOutput splits the path off', parseOutput('dist/lawn.svg?theme=dark').path === 'dist/lawn.svg'
+  && parseOutput('dist/lawn.svg').path === 'dist/lawn.svg');
+ok('a bare path asks for nothing',
+  Object.keys(opt('dist/lawn.svg')).length === 0 && parseOutput('dist/lawn.svg').year === null);
+ok('theme', opt('a?theme=dark').theme === 'dark' && opt('a?theme=light').theme === 'light');
+ok('animate', opt('a?animate=1').animate === true && opt('a?animate=0').animate === false);
+ok('mower', opt('a?mower=1').mower === true && opt('a?mower=0').mower === false);
+ok('weather', opt('a?weather=1').weather === true && opt('a?weather=0').weather === false);
+ok('bg=0 turns the background off',
+  opt('a?bg=0').background === false && opt('a?bg=1').background === true,
+  JSON.stringify(opt('a?bg=0')));
+ok('caption text, and 0 or empty for none',
+  opt('a?caption=hello%20there').caption === 'hello there'
+    && opt('a?caption=0').caption === null && opt('a?caption=').caption === null);
+ok('mowed as a fraction or as-is',
+  opt('a?mowed=0.25').mowed === 0.25 && opt('a?mowed=as-is').mowed === 'as-is'
+    && opt('a?mowed=1').mowed === 1);
+ok('year', parseOutput('a?year=2025').year === 2025 && parseOutput('a?year=2025').opts.year === undefined);
+ok('several options at once', (() => {
+  const o = opt('dist/lawn-dark.svg?theme=dark&animate=1&weather=0&bg=0&caption=0');
+  return o.theme === 'dark' && o.animate === true && o.weather === false
+    && o.background === false && o.caption === null;
+})());
+
+// the option list and the table people read have to be the same list
+const actionReadme = readFileSync(new URL('../action/README.md', import.meta.url), 'utf8');
+ok('every documented option is one parseOutput knows',
+  OPTION_KEYS.every((k) => actionReadme.includes('| `' + k + '` |')),
+  OPTION_KEYS.filter((k) => !actionReadme.includes('| `' + k + '` |')).join(','));
+
+// and the options really steer lawnToSvg, not just parseOutput
+const viaLine = lawnToSvg(svgLawn, opt('x.svg?theme=dark&weather=0&bg=0&caption=0'));
+ok('an output line drives the exporter',
+  THEMES.dark.greens.every((g) => viaLine.includes(g))     // theme=dark
+    && !viaLine.includes('id="glyphs"')                    // weather=0
+    && !viaLine.includes('<rect width="100%"')             // bg=0
+    && !/<text x="58" y="22"/.test(viaLine),               // caption=0
+  viaLine.slice(0, 160));
+ok('a line the exporter drew is still well-formed', malformed(viaLine) === '', malformed(viaLine));
 
 // --- the workflow we hand people ------------------------------------------
 

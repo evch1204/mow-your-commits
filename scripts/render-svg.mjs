@@ -12,18 +12,21 @@
 
 import { mkdir, writeFile, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { createLawn, isoDay } from '../src/core/lawn.js';
-import { normaliseApi, normaliseGraphql } from '../src/core/github.js';
+import {
+  normaliseApi, normaliseGraphql, GithubError, GRAPHQL, API as MIRROR,
+} from '../src/core/github.js';
 import { daysForYear, daysForRolling } from '../src/core/contrib.js';
 import { lawnToSvg } from '../src/export/svg.js';
 
-const API = 'https://api.github.com/graphql';
-const FALLBACK = 'https://github-contributions-api.jogruber.de/v4/';
+// GRAPHQL is GitHub's own API and MIRROR the public CORS mirror: the same two
+// endpoints, under the same names, that src/core/github.js uses on the page.
 const UA = 'mow-your-commits';
 
 // --- args -----------------------------------------------------------------
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const out = { outputs: 'dist/lawn.svg?animate=1\ndist/lawn-dark.svg?theme=dark&animate=1' };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -34,18 +37,30 @@ function parseArgs(argv) {
 }
 
 /** The action passes the list as a YAML block; a shell may pass literal \n. */
-function splitOutputs(text) {
+export function splitOutputs(text) {
   return String(text || '')
     .split(/\\n|[\r\n]+/)
     .map((s) => s.trim())
     .filter(Boolean);
 }
 
+/** Every query key an output line may carry; the table in action/README.md. */
+export const OPTION_KEYS = [
+  'theme', 'animate', 'mower', 'weather', 'bg', 'caption', 'mowed', 'year',
+];
+
 /** "dist/lawn-dark.svg?theme=dark&year=2025" -> path + lawnToSvg options */
-function parseOutput(line) {
+export function parseOutput(line) {
   const at = line.indexOf('?');
   const path = at < 0 ? line : line.slice(0, at);
   const q = new URLSearchParams(at < 0 ? '' : line.slice(at + 1));
+  // a typo used to render the default in silence; say so in the Action log
+  for (const key of q.keys()) {
+    if (!OPTION_KEYS.includes(key)) {
+      console.log(`  warning: "${key}" is not an option, ignoring it`
+        + ` (${OPTION_KEYS.join(', ')})`);
+    }
+  }
   const opts = {};
   if (q.has('theme')) opts.theme = q.get('theme');
   if (q.has('animate')) opts.animate = q.get('animate') !== '0';
@@ -99,7 +114,7 @@ async function fromGraphQL(user, token, year, today) {
     }
   }`;
 
-  const res = await fetch(API, {
+  const res = await fetch(GRAPHQL, {
     method: 'POST',
     headers: {
       authorization: 'bearer ' + token,
@@ -114,20 +129,19 @@ async function fromGraphQL(user, token, year, today) {
   }
   const json = await res.json();
   if (json.errors && json.errors.length) throw new Error('graphql: ' + json.errors[0].message);
-  if (!json.data || !json.data.user) throw new Error('no such user: ' + user);
+  if (!json.data || !json.data.user) throw new GithubError('notfound', 'no such user: ' + user);
   const data = normaliseGraphql(json, today);
   return year ? data.days : (data.last || data.days);
 }
 
 /** No token, or the token cannot see the calendar: a public CORS mirror. */
 async function fromMirror(user, year, today) {
-  const url = FALLBACK + encodeURIComponent(user) + '?y=' + (year || 'last');
+  const url = MIRROR + encodeURIComponent(user) + '?y=' + (year || 'last');
   const res = await fetch(url, { headers: { 'user-agent': UA } });
   if (!res.ok) {
     await res.text().catch(() => {});   // drain, or node exits noisily
-    throw new Error(res.status === 404
-      ? 'no such user: ' + user
-      : `contributions api returned ${res.status}`);
+    if (res.status === 404) throw new GithubError('notfound', 'no such user: ' + user);
+    throw new Error(`contributions api returned ${res.status}`);
   }
   const { days } = normaliseApi(await res.json(), today);
   if (!days.length) throw new Error('no contributions for ' + user);
@@ -139,7 +153,7 @@ async function loadDays(user, token, year, today) {
     try {
       return { days: await fromGraphQL(user, token, year, today), via: 'api.github.com/graphql' };
     } catch (err) {
-      if (/no such user/.test(err.message)) throw err;
+      if (err instanceof GithubError && err.kind === 'notfound') throw err;
       console.log(`  graphql failed (${err.message}), falling back`);
     }
   }
@@ -196,9 +210,13 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err && err.message ? err.message : String(err));
-  // exitCode rather than exit(): node on Windows aborts noisily if a keep-alive
-  // fetch socket is still open when the process is killed mid-flight.
-  process.exitCode = 1;
-});
+// Only when run as a script: smoke.mjs imports the parsers above.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error(err && err.message ? err.message : String(err));
+    // exitCode rather than exit(): node on Windows aborts noisily if a
+    // keep-alive fetch socket is still open when the process is killed
+    // mid-flight.
+    process.exitCode = 1;
+  });
+}
