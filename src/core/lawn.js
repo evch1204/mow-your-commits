@@ -28,7 +28,13 @@ export const SEASONS = [
 ];
 
 /** What the HUD says is happening, one word per season. */
-export const SEASON_WORD = ['snowing', 'fresh', 'sunny', 'leaves falling'];
+export const SEASON_WORD = ['snowing', 'blossom', 'sunny', 'leaves falling'];
+
+/** Names for the little doodle glyph each season gets in the 2D month strip. */
+export const SEASON_GLYPH = ['snow', 'flower', 'sun', 'leaf'];
+
+/** A northern-hemisphere feel, in degrees C, by month. The HUD reads this. */
+export const TEMP_C = [-2, 0, 5, 11, 16, 20, 24, 23, 18, 12, 6, 1];
 
 const MAX_SPEED = 0.24;    // cells per frame at 60fps
 const MIN_SPEED = -0.13;
@@ -163,7 +169,34 @@ export function createLawn(data, opts = {}) {
     monthStarts[i].span = (i + 1 < monthStarts.length ? monthStarts[i + 1].col : cols) - monthStarts[i].col;
   }
 
+  // Per-cell "vigor": where this day sits inside its own level's count range.
+  // A 3-contribution day and a 40-contribution day can share level 4; vigor is
+  // what lets the renderers grow them differently.
+  const lo = [0, Infinity, Infinity, Infinity, Infinity];
+  const hi = [0, -Infinity, -Infinity, -Infinity, -Infinity];
+  let maxCount = 0;
+  for (const c of cells) {
+    if (c.void) continue;
+    if (c.count > maxCount) maxCount = c.count;
+    if (c.level <= 0) continue;
+    if (c.count < lo[c.level]) lo[c.level] = c.count;
+    if (c.count > hi[c.level]) hi[c.level] = c.count;
+  }
+  // The best days of the year: the top 3% of non-zero days. Always at least one.
+  const nzc = cells.filter((c) => !c.void && c.count > 0).map((c) => c.count).sort((a, b) => a - b);
+  const heroicMin = nzc.length
+    ? nzc[Math.min(nzc.length - 1, Math.floor(nzc.length * 0.97))] : Infinity;
+  for (const c of cells) {
+    const l = c.level;
+    if (c.void || l <= 0) c.vigor = 0;
+    else if (hi[l] === lo[l]) c.vigor = 0.5;
+    else c.vigor = (c.count - lo[l]) / (hi[l] - lo[l]);
+    c.heroic = !c.void && l === 4 && c.count >= heroicMin;
+  }
+
   return {
+    maxCount,
+    heroicMin,
     seed,
     year,
     cols,
@@ -298,24 +331,41 @@ export function seasonOfCol(lawn, col) {
   return SEASONS[seasonIndexOfCol(lawn, col)];
 }
 
-/** "Tue 14 Mar 2026 - 12 contributions" */
-export function describeCell(cell) {
-  if (!cell || cell.void || !cell.date) return '';
-  const when = formatDate(cell.date);
-  if (!cell.count) return when + ' - nothing that day';
-  return when + ' - ' + cell.count + ' contribution' + (cell.count === 1 ? '' : 's');
+/** Rough air temperature, in degrees C, for wherever the mower is standing. */
+export function tempAt(lawn, x) {
+  return TEMP_C[monthAt(lawn, x)];
 }
 
-export function formatDate(isoDate) {
+/** "Sun, 14 Sep 2025 · 12 contributions" */
+export function describeCell(cell) {
+  if (!cell || cell.void || !cell.date) return '';
+  const n = cell.count;
+  return formatDay(cell.date) + ' · '
+    + (n ? n + ' contribution' + (n === 1 ? '' : 's') : 'no contributions');
+}
+
+/** "Sun, 14 Sep 2025" */
+export function formatDay(isoDate) {
   const d = new Date(isoDate + 'T00:00:00');
-  return DAY_NAMES[d.getDay()] + ' ' + d.getDate() + ' '
+  return DAY_NAMES[d.getDay()] + ', ' + d.getDate() + ' '
     + MONTH_NAMES[d.getMonth()].slice(0, 3) + ' ' + d.getFullYear();
 }
 
-/** mm:ss */
+/** The old name for formatDay. */
+export const formatDate = formatDay;
+
+/** "in the last year" / "in 2025". Used by the lede, the end card and the brag. */
+export function periodLabel(lawn) {
+  return lawn && lawn.year != null ? 'in ' + lawn.year : 'in the last year';
+}
+
+/** m:ss, and h:mm:ss once you pass an hour. */
 export function formatTime(sec) {
   const s = Math.max(0, Math.floor(sec));
-  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  const mm = Math.floor(s / 60) % 60;
+  const ss = String(s % 60).padStart(2, '0');
+  if (s < 3600) return mm + ':' + ss;
+  return Math.floor(s / 3600) + ':' + String(mm).padStart(2, '0') + ':' + ss;
 }
 
 // --- fake data ----------------------------------------------------------

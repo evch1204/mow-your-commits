@@ -2,8 +2,10 @@
 //   node scripts/smoke.mjs
 import {
   createLawn, resetLawn, tick, progress, COLS, ROWS, MAX_COLS,
-  describeCell, formatTime, gridForYear, layoutYear, placeMower, isoDay,
+  describeCell, formatTime, formatDay, periodLabel, tempAt,
+  gridForYear, layoutYear, placeMower, isoDay,
 } from '../src/core/lawn.js';
+import { GRASS, grassFor } from '../src/core/palette.js';
 import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
 import {
   parseUserInput, normaliseApi, clampLevel, GithubError,
@@ -548,6 +550,71 @@ if (liveAt !== -1) {
     ok('live: fetch succeeded', false, e.kind ? e.kind + ' - ' + e.message : String(e));
   }
 }
+// --- text: one scale, middle dots, no stray hyphens -----------------------
+
+ok('formatDay reads like a date', formatDay('2025-09-14') === 'Sun, 14 Sep 2025', formatDay('2025-09-14'));
+const DOT = ' \u00b7 ';
+const dz = { date: '2025-09-14', count: 0, level: 0 };
+const d1 = { date: '2025-09-14', count: 1, level: 1 };
+const d12 = { date: '2025-09-14', count: 12, level: 3 };
+ok('describeCell: none', describeCell(dz) === 'Sun, 14 Sep 2025' + DOT + 'no contributions', describeCell(dz));
+ok('describeCell: one', describeCell(d1) === 'Sun, 14 Sep 2025' + DOT + '1 contribution', describeCell(d1));
+ok('describeCell: many', describeCell(d12) === 'Sun, 14 Sep 2025' + DOT + '12 contributions', describeCell(d12));
+ok('no hyphen separators anywhere',
+  [dz, d1, d12].every((d) => !describeCell(d).includes(' - ')));
+ok('periodLabel rolling', periodLabel(createLawn(null, { year: null })) === 'in the last year');
+ok('periodLabel year', periodLabel(createLawn(null, { year: 2025 })) === 'in 2025');
+ok('formatTime under an hour', formatTime(97) === '1:37', formatTime(97));
+ok('formatTime past an hour', formatTime(3723) === '1:02:03', formatTime(3723));
+
+// --- vigor and heroic days ------------------------------------------------
+
+const vg = createLawn(null, { seed: 20260904 });
+ok('vigor is in range', vg.cells.every((c) => c.vigor >= 0 && c.vigor <= 1));
+ok('level 0 has no vigor', vg.cells.every((c) => c.level > 0 || c.vigor === 0));
+ok('vigor rises with count inside a level', (() => {
+  for (let l = 1; l <= 4; l++) {
+    const inLevel = vg.cells.filter((c) => !c.void && c.level === l).sort((a, b) => a.count - b.count);
+    for (let i = 1; i < inLevel.length; i++) {
+      if (inLevel[i].vigor < inLevel[i - 1].vigor - 1e-9) return false;
+    }
+  }
+  return true;
+})());
+ok('at least one heroic day', vg.cells.some((c) => c.heroic));
+ok('heroic days are level 4', vg.cells.every((c) => !c.heroic || c.level === 4));
+ok('heroic days clear the bar', vg.cells.every((c) => !c.heroic || c.count >= vg.heroicMin));
+ok('maxCount matches the cells',
+  vg.maxCount === Math.max(...vg.cells.map((c) => c.count)), String(vg.maxCount));
+const vg25 = createLawn(null, { seed: 20260904, year: 2025 });
+ok('void cells are never heroic', vg25.cells.every((c) => !c.void || c.heroic === false));
+ok('void cells have no vigor', vg25.cells.every((c) => !c.void || c.vigor === 0));
+resetLawn(vg);
+ok('regrow leaves vigor and heroic alone',
+  vg.cells.every((c) => c.vigor >= 0) && vg.cells.some((c) => c.heroic));
+
+// --- the shared grass grammar ---------------------------------------------
+
+ok('blade spans never step backwards', (() => {
+  for (let l = 1; l <= 4; l++) {
+    if (GRASS.blades[l][0] < GRASS.blades[l - 1][1]) return false;
+    if (GRASS.height[l][0] < GRASS.height[l - 1][1]) return false;
+    if (GRASS.blades[l][1] < GRASS.blades[l][0]) return false;
+  }
+  return true;
+})());
+ok('the biggest day is the tallest', grassFor(4, 1).height === 19, String(grassFor(4, 1).height));
+ok('vigor 0 is the bottom of the span',
+  [0, 1, 2, 3, 4].every((l) => grassFor(l, 0).blades === GRASS.blades[l][0]));
+ok('grassFor clamps out-of-range vigor',
+  grassFor(4, 9).height === 19 && grassFor(4, -3).height === 14);
+
+// --- temperature ----------------------------------------------------------
+
+ok('tempAt answers off both ends',
+  [-2, 0, 10, vg.cols - 1, vg.cols + 2].every((x) => Number.isFinite(tempAt(vg, x))));
+ok('winter is colder than summer', tempAt(vg25, 2) < tempAt(vg25, 28),
+  tempAt(vg25, 2) + ' vs ' + tempAt(vg25, 28));
 
 console.log(failures ? `\n${failures} FAILED` : '\nall good');
 process.exit(failures ? 1 : 0);

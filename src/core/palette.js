@@ -32,11 +32,58 @@ const OVERGROWN = '#4E5A3C';
 
 /** Snow dusting on winter ground, and the pale blades that grow through it. */
 export const FROST = '#F2F5F7';
-export const WINTER_BLADE = ['', '#B4D5BF', '#8FC0A2', '#6EA484', '#4F8768'];
+/** Frosted but still green enough that four winter densities read apart. */
+export const WINTER_BLADE = ['', '#A8CDB5', '#7FB897', '#5A9878', '#3E7A5C'];
 /** A few blades in autumn columns go brown. */
 export const AUTUMN_BLADE = '#BA7517';
 /** Spring flowers. */
 export const FLOWERS = ['#F6C3D4', '#FFFDF5', '#F4D06F'];
+
+/** A best-day dandelion: yellow disc, then a seed-head puff. */
+export const DANDELION = '#F4D06F';
+export const FLUFF = '#FFFDF5';
+export const PETAL = ['#F6C3D4', '#FFE1EA'];
+
+/** Sky, ground and light per season: 0 winter, 1 spring, 2 summer, 3 autumn. */
+export const SKY_TOP = ['#C9D6E2', '#BFDDF5', '#8FC6F0', '#E9C9A2'];
+export const SKY_HORIZON = ['#EEF2F5', '#F1F7EC', '#E8F4FB', '#FBEEDC'];
+export const MEADOW_BY_SEASON = ['#E4EAE6', '#C9DCAE', '#B9D48F', '#D6C98E'];
+export const SUN_LIGHT = ['#DCE8F5', '#FFF6E6', '#FFE9B8', '#FFD9A8'];
+export const DIRT_BY_SEASON = ['#BFC7CA', '#B08A5C', '#A9855B', '#B7925E'];
+
+/**
+ * The grass grammar, shared by both renderers (and by the SVG exporter).
+ * Index is the GitHub level; every span is [at vigor 0, at vigor 1], so a
+ * 40-contribution level-4 day is visibly taller and denser than a 12.
+ */
+export const GRASS = {
+  blades: [[0, 0], [2, 3], [4, 6], [7, 9], [10, 13]],
+  height: [[0, 0], [4, 6], [7, 10], [10, 14], [14, 19]],   // 2D px on a 16px tile
+  width: [0, 1.2, 1.4, 1.6, 1.85],                         // 2D stroke px
+  tuftY: [[0, 0], [0.8, 1.05], [0.8, 1.1], [0.85, 1.15], [0.9, 1.3]],  // 3D y-scale
+};
+
+const span = (s, v) => s[0] + (s[1] - s[0]) * v;
+
+/** How a day of this level and this vigor grows. */
+export function grassFor(level, vigor = 0.5) {
+  const l = Math.max(0, Math.min(4, level | 0));
+  const v = Math.max(0, Math.min(1, vigor));
+  return {
+    blades: Math.round(span(GRASS.blades[l], v)),
+    height: span(GRASS.height[l], v),
+    width: GRASS.width[l],
+    tuftY: span(GRASS.tuftY[l], v),
+  };
+}
+
+/**
+ * A whisper of per-cell personality so a big block of one level does not read
+ * as a printed swatch: every third cell lifts, the rest sink, by 5%.
+ */
+export function cellTint(hex, col, row) {
+  return mix(hex, ((col * 7 + row * 3) % 3 === 0 ? '#FFFFFF' : '#1F3A26'), 0.05);
+}
 
 export function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -66,13 +113,14 @@ export function levelGreen(level, season = 2) {
  * mowed -> the exact (season-tinted) GitHub green: this is the reveal.
  * unmowed -> the same green darkened and dulled, because grass is hiding it.
  */
-export function tileColor(level, season, mowed) {
+export function tileColor(level, season, mowed, vigor = 0) {
   const g = levelGreen(level, season);
   if (mowed) return g;                      // the reveal rule always wins
-  if (level <= 0) return season === 0 ? mix(g, FROST, 0.5) : g;
-  // overgrown; and winter ground carries a snow dusting whatever the weather
-  const over = shade(mix(g, OVERGROWN, 0.34), 0.82);
-  return season === 0 ? mix(over, FROST, 0.42) : over;
+  if (level <= 0) return season === 0 ? mix(g, FROST, 0.35) : g;
+  // overgrown; a busier day casts a deeper shadow on its own tile
+  const over = shade(shade(mix(g, OVERGROWN, 0.34), 0.82), 1 - 0.12 * Math.max(0, Math.min(1, vigor)));
+  // winter ground carries a snow dusting, but light enough to keep the levels apart
+  return season === 0 ? mix(over, FROST, 0.2) : over;
 }
 
 /** Multiply a hex colour brightness. */
