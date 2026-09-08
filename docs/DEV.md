@@ -29,8 +29,10 @@ Two renderers share one model:
   instead of leaving stragglers. Only the animated export uses it, but it is pure core:
   no DOM, no dependencies.
 - `src/export/` — `lawnToSvg(lawn, opts)`, a pure function that draws the 2D board as SVG
-  with the same geometry and palette. Used by the page's download buttons and by the
-  GitHub Action. No DOM, no dependencies.
+  from the same geometry and palette. Used by the page's download buttons and by the
+  GitHub Action. `svg.js`, `themes.js` and `font.js` touch no DOM and have no
+  dependencies, so node can run them; `png.js` is the browser half, rasterising that SVG
+  through a canvas for the download buttons.
 - `src/share.js` — share links, brag text, the markdown snippet and the workflow yaml.
 - `scripts/render-svg.mjs` — what the Action runs. Imports only `src/core` and
   `src/export`, so it works with `node_modules` deleted (CI asserts this).

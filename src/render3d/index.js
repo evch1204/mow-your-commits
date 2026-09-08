@@ -428,8 +428,8 @@ export class Renderer3D {
       g.add(rail);
     }
 
-    // doodle trees that follow the season: five on the fence line, eight more
-    // set back in the meadow so the skyline has some depth
+    // doodle trees that follow the season: five on the fence line, twelve
+    // more set back in the meadow so the skyline has some depth
     this.trees.length = 0;
     for (let t = 0; t < 5; t++) {
       const x = (t + 0.5) / 5 * cols - cols / 2 + (t % 2 ? 2 : -2);

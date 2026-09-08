@@ -350,10 +350,6 @@ export class Renderer2D {
     }
   }
 
-  /**
-   * Twin tyre tracks, sampled every few pixels of travel and drawn under the
-   * grass, so they only show where the lawn has actually been cut.
-   */
   /** Drop a track sample if the mower has moved far enough since the last one. */
   sampleTrack() {
     const m = this.lawn.mower;
@@ -364,6 +360,10 @@ export class Renderer2D {
     if (this.tracks.length > 160) this.tracks.shift();
   }
 
+  /**
+   * Twin tyre tracks, sampled every few pixels of travel and drawn under the
+   * grass, so they only show where the lawn has actually been cut.
+   */
   drawTracks(dt) {
     const { ctx } = this;
     this.sampleTrack();

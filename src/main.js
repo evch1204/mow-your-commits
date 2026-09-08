@@ -292,9 +292,9 @@ function exportName() {
 
 /**
  * The README section's <img>. One object URL at a time, never per frame.
- * refreshTotals() runs this at boot, so a throw here would take the whole page
- * down with it (no render loop, no controls): the preview is the one thing on
- * the page allowed to be missing.
+ * This runs at boot, before the render loop starts, so a throw here would take
+ * the whole page down with it (no loop, no controls). Hence the try: the
+ * picture is worth less than the lawn.
  *
  * Animated, because the workflow the button next to it copies carries
  * `animate=1`: the preview has to be the picture that actually lands in a
@@ -355,7 +355,8 @@ if (navigator.share && $('sharex')) $('sharex').textContent = 'share';
 on('dlcard', 'click', (e) => renderPng(e.currentTarget, 'as-is'));
 
 on('tryme', 'click', () => {
-  // plan B owns the loader form; without it, ask and reload on ?user=
+  // the loader owns the username box; on a page built without it, ask for a
+  // name and reload on ?user=
   const box = $('user');
   if (box) {
     box.focus();

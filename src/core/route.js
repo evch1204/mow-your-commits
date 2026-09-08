@@ -23,9 +23,10 @@ const JITTER = 0.7;
  * The frontier. A greedy tour left to itself races to the far end and then
  * spends the rest of the loop coming back for the days it skipped, which reads
  * as a scribble. So only the leftmost WINDOW cells of *unmowed* lawn are in
- * play: anything past that is charged FRONT_W per cell, which is far more than
- * any distance on this board, so the mower cannot leave stragglers behind and
- * the frontier only advances once the window behind it is clean.
+ * play: anything past that is charged FRONT_W per cell. Nothing is left
+ * standing because the loop re-computes the frontier from what is still
+ * unmowed after every pick; the cost only steers the mower toward the near
+ * edge of the window rather than the far end of the year.
  */
 const FRONT_W = 4;
 const WINDOW = 2.5;
@@ -255,7 +256,8 @@ function bezAt(sp, t) {
 function mowWalk(curve, targets, lawn) {
   const cols = lawn.cols;
   const rows = lawn.rows;
-  // grid lookup: a blade point can only touch the nine cells around it
+  // grid lookup: a MOW_RADIUS of 0.67 spans at most two columns and two rows,
+  // so a blade point can only touch four cells
   const at = new Int32Array(cols * rows).fill(-1);
   for (let k = 0; k < targets.length; k++) at[targets[k].i] = k;
 

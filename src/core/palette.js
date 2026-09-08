@@ -90,7 +90,9 @@ export function grassFor(level, vigor = 0.5) {
 
 /**
  * A whisper of per-cell personality so a big block of one level does not read
- * as a printed swatch: every third cell lifts, the rest sink, by 5%.
+ * as a printed swatch: 5% toward white or toward a deep green.
+ * The row term is a multiple of 3, so today this reduces to column bands of
+ * period 3: whole columns lift, the two beside them sink.
  */
 export function cellTint(hex, col, row) {
   return mix(hex, ((col * 7 + row * 3) % 3 === 0 ? '#FFFFFF' : '#1F3A26'), 0.05);

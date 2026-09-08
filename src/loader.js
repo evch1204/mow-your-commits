@@ -1,6 +1,6 @@
 // The loader form: everything that turns "torvalds" into a lawn and everything
-// the page says while it happens. This is the only file in plan B that touches
-// the DOM; src/core/github.js stays pure.
+// the page says while it happens. This is the only file that touches the form's
+// DOM; src/core/github.js does the fetching and stays pure.
 
 import {
   parseUserInput, fetchContributions, fetchViaGraphql, readCache, writeCache,

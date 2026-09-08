@@ -5,7 +5,8 @@
 // It scrapes the public profile and is the only CORS-open public mirror, so a
 // static page can call it directly. Shape:
 //   { total: { "2011": 2087, ..., "2026": 2697 }, contributions: [{ date, count, level }] }
-// `level` is 0..4, GitHub's own per-year quartiles, and is 0 iff count is 0.
+// `level` is 0..4, GitHub's own per-year quartiles, and should be 0 iff count
+// is 0; clampLevel repairs the days where the mirror says otherwise.
 // Years come newest-first with days ascending inside a year, so the list needs
 // a sort. The `total` keys are exactly the years the profile picker shows.
 
@@ -176,6 +177,9 @@ const unpack = (rows) => (Array.isArray(rows)
   ? rows.map((r) => ({ date: r[0], count: r[1] || 0, level: r[2] || 0 }))
   : null);
 
+/** Every lawn this project has cached, this version's and older ones'. The
+ *  prefix is spelled out rather than built from CACHE_PREFIX on purpose: a
+ *  version bump has to sweep the entries the last version left behind. */
 function cacheKeys(storage) {
   const keys = [];
   for (let i = 0; i < storage.length; i++) {

@@ -832,8 +832,10 @@ ok('a junk seed falls back to the default',
   lawnToSvg(svgLawn, { animate: true, seed: 'abc' }) === animSvg);
 
 // --- the login that comes off the URL -------------------------------------
-// share.js has no sanitiser of its own: parseUserInput (tested above) is the
-// only one in the project, and everything a stranger can supply goes through it.
+// share.js has no sanitiser of its own: in the browser everything a stranger
+// can supply reaches a filename, a URL and a caption through parseUserInput
+// (tested above). The Action's --user takes the other road, through esc() in
+// the SVG, which is asserted with the export.
 
 const snip = (u) => {
   const md = markdownSnippet(u);
