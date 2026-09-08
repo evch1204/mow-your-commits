@@ -16,6 +16,7 @@ const TUFT_BLADES = [3, 5, 8, 12];
 const TUFT_HEIGHT = [0.35, 0.6, 0.9, 1.25];
 const MOWED_SCALE = 0.18;
 const CLIP_MAX = 260;          // flying clippings alive at once
+const LEAF_N = 44;             // leaves in autumn, blossom in spring
 
 // Hemisphere light tint per season: cool in winter, warm in summer.
 const HEMI = ['#DCE9F4', '#EEF8E6', '#FFF6DE', '#FBEBD6'];
@@ -390,11 +391,26 @@ export class Renderer3D {
     this.fenceZ = -ROWS / 2 - 1.7;
     const wood = this.toon(0x8b6b43);
     this.wood = wood;
-    for (let f = 0; f <= cols; f += 4) {
-      const post = this.inked(new THREE.BoxGeometry(0.22, 1.3, 0.22), wood, 1.12);
-      post.position.set(f - cols / 2, 0.65, this.fenceZ);
-      g.add(post);
+    // one instanced post and one instanced outline, not fourteen inked pairs:
+    // a 53-week fence was 28 draw calls of the frame's budget on its own
+    const postGeo = new THREE.BoxGeometry(0.22, 1.3, 0.22);
+    const nPosts = Math.floor(cols / 4) + 1;
+    const posts = new THREE.InstancedMesh(postGeo, wood, nPosts);
+    const postInk = new THREE.InstancedMesh(postGeo, this.inkMat, nPosts);
+    for (let i = 0; i < nPosts; i++) {
+      const d = this.dummy;
+      d.position.set(i * 4 - cols / 2, 0.65, this.fenceZ);
+      d.rotation.set(0, 0, 0);
+      d.scale.setScalar(1);
+      d.updateMatrix();
+      posts.setMatrixAt(i, d.matrix);
+      d.scale.setScalar(1.12);
+      d.updateMatrix();
+      postInk.setMatrixAt(i, d.matrix);
     }
+    posts.frustumCulled = postInk.frustumCulled = false;
+    g.add(posts, postInk);
+
     for (const y of [0.5, 1.0]) {
       const rail = this.inked(new THREE.BoxGeometry(cols + 0.4, 0.12, 0.12), wood, 1.08);
       rail.position.set(0, y, this.fenceZ);
@@ -554,18 +570,25 @@ export class Renderer3D {
     this.fluff.frustumCulled = false;
     this.scene.add(this.fluff);
 
-    const leafGeo = new THREE.PlaneGeometry(0.3, 0.19);
-    this.leaves = [];
-    for (let l = 0; l < 44; l++) {
-      const lm = new THREE.Mesh(leafGeo, new THREE.MeshBasicMaterial({
-        color: [0xd85a30, 0xef9f27, 0xba7517][l % 3],
-        side: THREE.DoubleSide, transparent: true, opacity: 0,
-      }));
-      lm.position.set((Math.random() - 0.5) * 26, Math.random() * 8, (Math.random() - 0.5) * 22);
-      lm.userData.v = 0.012 + Math.random() * 0.022;
-      this.scene.add(lm);
-      this.leaves.push(lm);
+    // autumn leaves, which double as spring blossom. One instanced quad: as 44
+    // separate meshes they were a third of the frame's draw calls on their own.
+    this.leafMat = new THREE.MeshBasicMaterial({
+      side: THREE.DoubleSide, transparent: true, opacity: 0,
+    });
+    this.leaves = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.3, 0.19), this.leafMat, LEAF_N);
+    this.leaves.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.leaves.frustumCulled = false;
+    this.leaves.visible = false;
+    this.leafSpring = null;      // which palette the instance colours are holding
+    this.leafState = [];
+    for (let l = 0; l < LEAF_N; l++) {
+      this.leafState.push({
+        x: (Math.random() - 0.5) * 26, y: Math.random() * 8, z: (Math.random() - 0.5) * 22,
+        rx: Math.random() * 6.28, rz: Math.random() * 6.28,
+        v: 0.012 + Math.random() * 0.022,
+      });
     }
+    this.scene.add(this.leaves);
 
     const sunTex = this.canvasTexture(128, 128, (c) => {
       c.lineWidth = 6; c.strokeStyle = INK; c.fillStyle = '#FAC775';
@@ -1175,18 +1198,34 @@ export class Renderer3D {
     // the same pool is autumn leaves and spring blossom, whichever is nearer
     const spring = wm[1] > wm[3];
     const falling = clamp(wm[3] + 0.6 * wm[1], 0, 1);
-    for (let i = 0; i < this.leaves.length; i++) {
-      const lf = this.leaves[i];
-      lf.visible = falling > 0.01;
-      lf.material.opacity = falling;
-      if (!lf.visible) continue;
-      lf.material.color.set(spring ? PETAL[i % 2] : AUTUMN_TRIO[i % 3]);
-      lf.position.y -= lf.userData.v * (spring ? 0.6 : 1);
-      lf.position.x += Math.sin(this.time * 1.7 + i) * 0.012;
-      lf.rotation.x += 0.03; lf.rotation.z += 0.02;
-      if (lf.position.y < 0.1 || Math.abs(lf.position.x - tx) > 15 || Math.abs(lf.position.z - tz) > 14) {
-        lf.position.set(tx + (Math.random() - 0.5) * 26, 5 + Math.random() * 4, tz + (Math.random() - 0.5) * 22);
+    this.leafMat.opacity = falling;
+    this.leaves.visible = falling > 0.01;
+    if (this.leaves.visible) {
+      if (this.leafSpring !== spring) {       // only at the season border
+        this.leafSpring = spring;
+        for (let i = 0; i < LEAF_N; i++) {
+          this.leaves.setColorAt(i, this.tmpColor.set(spring ? PETAL[i % 2] : AUTUMN_TRIO[i % 3]));
+        }
+        this.leaves.instanceColor.needsUpdate = true;
       }
+      const d = this.dummy;
+      for (let i = 0; i < LEAF_N; i++) {
+        const lf = this.leafState[i];
+        lf.y -= lf.v * (spring ? 0.6 : 1);
+        lf.x += Math.sin(this.time * 1.7 + i) * 0.012;
+        lf.rx += 0.03; lf.rz += 0.02;
+        if (lf.y < 0.1 || Math.abs(lf.x - tx) > 15 || Math.abs(lf.z - tz) > 14) {
+          lf.x = tx + (Math.random() - 0.5) * 26;
+          lf.y = 5 + Math.random() * 4;
+          lf.z = tz + (Math.random() - 0.5) * 22;
+        }
+        d.position.set(lf.x, lf.y, lf.z);
+        d.rotation.set(lf.rx, 0, lf.rz);
+        d.scale.setScalar(1);
+        d.updateMatrix();
+        this.leaves.setMatrixAt(i, d.matrix);
+      }
+      this.leaves.instanceMatrix.needsUpdate = true;
     }
 
     // summer: dandelion fluff drifting up out of the grass
