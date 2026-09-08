@@ -19,6 +19,7 @@ const startCol = params.has('start') ? Number(params.get('start')) : null;
 const startYaw = params.has('yaw') ? Number(params.get('yaw')) : 0;
 const startDist = params.has('dist') ? Number(params.get('dist')) : 0;
 const startCam = params.get('cam') === 'overview' ? 1 : 0;
+const ogShot = params.get('og') === '1';    // debug: strip the page down to the board
 
 const TODAY = isoDay(new Date());
 
@@ -296,6 +297,22 @@ on('dlpng', 'click', async (e) => {
 });
 on('cpmd', 'click', (e) => copy(markdownSnippet(currentUser()), e.currentTarget));
 on('cpyml', 'click', (e) => copy(workflowYaml(), e.currentTarget));
+
+
+on('tryme', 'click', () => {
+  // plan B owns the loader form; without it, ask and reload on ?user=
+  const box = $('user');
+  if (box) {
+    box.focus();
+    box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    return;
+  }
+  const name = window.prompt('github username');
+  if (name && name.trim()) location.search = '?user=' + encodeURIComponent(name.trim());
+});
+
+if (!params.get('user') && $('try')) $('try').hidden = false;
+if (ogShot) document.body.dataset.og = '1';
 
 
 // --- HUD -----------------------------------------------------------------
