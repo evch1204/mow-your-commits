@@ -12,17 +12,27 @@ export const REPO = 'https://github.com/evch1204/mow-your-commits';
 const RAW = 'https://raw.githubusercontent.com';
 
 /**
+ * A GitHub login is ASCII letters, digits and hyphens, 39 characters at most.
+ * `?user=` is a stranger's URL and it ends up in a filename, a raw.github URL
+ * and an SVG caption, so keep only the part that could actually be a login.
+ * A pasted profile URL still gives us one.
+ */
+export function cleanUser(name) {
+  const s = String(name == null ? '' : name).trim();
+  const m = /github\.com\/([^/?#]+)/i.exec(s);
+  const raw = (m ? m[1] : s).replace(/^@/, '');
+  return (/[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/.exec(raw) || [''])[0].slice(0, 39);
+}
+
+/**
  * Whose lawn is on screen: ?user= wins, then the loader input if it exists
  * (plan B owns #user; this must keep working when it doesn't). '' for the demo.
  */
 export function currentUser() {
   const fromUrl = new URLSearchParams(location.search).get('user');
-  if (fromUrl) return fromUrl.trim();
+  if (fromUrl) return cleanUser(fromUrl);
   const input = document.getElementById('user');
-  const typed = input && input.value ? input.value.trim() : '';
-  // a profile URL pasted into the box still gives us a login
-  const m = /github\.com\/([^/?#]+)/i.exec(typed);
-  return (m ? m[1] : typed).replace(/^@/, '');
+  return cleanUser(input && input.value);
 }
 
 /** A link that opens the site on somebody's own graph. */
@@ -32,7 +42,7 @@ export function shareUrl(user) {
 
 /** The `<picture>` block that goes in a profile README. */
 export function markdownSnippet(user) {
-  const u = user || 'YOUR-USERNAME';
+  const u = cleanUser(user) || 'YOUR-USERNAME';
   return `<picture>
   <source media="(prefers-color-scheme: dark)" srcset="${RAW}/${u}/${u}/output/lawn-dark.svg">
   <img alt="my GitHub contribution graph as a half-mowed lawn" src="${RAW}/${u}/${u}/output/lawn.svg">

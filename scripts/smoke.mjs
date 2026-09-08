@@ -11,7 +11,7 @@ import {
 import { lawnToSvg } from '../src/export/svg.js';
 import { THEMES } from '../src/export/themes.js';
 import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
-import { workflowYaml } from '../src/share.js';
+import { workflowYaml, cleanUser, markdownSnippet, shareUrl, SITE } from '../src/share.js';
 import {
   parseUserInput, normaliseApi, clampLevel, GithubError,
   fetchContributions, readCache, writeCache, CACHE_TTL, STALE_OK, MAX_CACHED,
@@ -729,6 +729,20 @@ ok('animate still loads nothing external',
   !/https?:\/\//.test(animSvg.replace(/xmlns="[^"]*"/, '')));
 ok('a fully mowed lawn has nothing to animate',
   !lawnToSvg(svgLawn, { animate: true, mowed: 1 }).includes('<animateTransform'));
+
+// --- the login that comes off the URL -------------------------------------
+
+ok('a plain login survives', cleanUser('torvalds') === 'torvalds');
+ok('a profile URL gives a login', cleanUser('https://github.com/gaearon?tab=repos') === 'gaearon');
+ok('an @ and whitespace come off', cleanUser('  @evch1204 ') === 'evch1204');
+ok('markup never reaches the snippet', cleanUser('"><script>alert(1)</script>') === 'script');
+ok('a path separator never reaches a filename', cleanUser('a/../../b') === 'a');
+ok('nothing sane in, nothing out', cleanUser('') === '' && cleanUser(null) === '');
+ok('the snippet only ever carries a login',
+  !/["'<>\s]/.test((/githubusercontent\.com\/(\S+)\/output/.exec(markdownSnippet('a b<c'))
+    || [, 'x"'])[1]), markdownSnippet('a b<c').slice(0, 120));
+ok('no user means a placeholder', markdownSnippet('').includes('/YOUR-USERNAME/YOUR-USERNAME/'));
+ok('the share link encodes the login', shareUrl('a-b') === SITE + '?user=a-b');
 
 // --- the workflow we hand people ------------------------------------------
 
