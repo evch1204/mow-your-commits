@@ -11,7 +11,7 @@ import {
 import { lawnToSvg, GEOM } from '../src/export/svg.js';
 import { THEMES } from '../src/export/themes.js';
 import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
-import { workflowYaml, cleanUser, markdownSnippet, shareUrl, SITE } from '../src/share.js';
+import { workflowYaml, markdownSnippet, shareUrl, SITE } from '../src/share.js';
 import {
   parseUserInput, normaliseApi, clampLevel, GithubError,
   fetchContributions, readCache, writeCache, CACHE_TTL, STALE_OK, MAX_CACHED,
@@ -743,18 +743,38 @@ ok('a fully mowed lawn has nothing to animate',
   !lawnToSvg(svgLawn, { animate: true, mowed: 1 }).includes('<animateTransform'));
 
 // --- the login that comes off the URL -------------------------------------
+// share.js has no sanitiser of its own: parseUserInput (tested above) is the
+// only one in the project, and everything a stranger can supply goes through it.
 
-ok('a plain login survives', cleanUser('torvalds') === 'torvalds');
-ok('a profile URL gives a login', cleanUser('https://github.com/gaearon?tab=repos') === 'gaearon');
-ok('an @ and whitespace come off', cleanUser('  @evch1204 ') === 'evch1204');
-ok('markup never reaches the snippet', cleanUser('"><script>alert(1)</script>') === 'script');
-ok('a path separator never reaches a filename', cleanUser('a/../../b') === 'a');
-ok('nothing sane in, nothing out', cleanUser('') === '' && cleanUser(null) === '');
+const snip = (u) => {
+  const md = markdownSnippet(u);
+  const upto = md.slice(0, md.indexOf('/output/')).split('/');
+  return upto[upto.length - 1];
+};
+ok('a plain login survives', snip('torvalds') === 'torvalds');
+ok('a profile URL gives a login', snip('https://github.com/gaearon?tab=repos') === 'gaearon');
+ok('an @ and whitespace come off', snip('  @evch1204 ') === 'evch1204');
+ok('markup never reaches the snippet', snip('"><script>alert(1)</script>') === 'YOUR-USERNAME');
+ok('a path separator never reaches a filename', snip('a/../../b') === 'a');
+ok('nothing sane in, nothing out', snip('') === 'YOUR-USERNAME' && snip(null) === 'YOUR-USERNAME');
 ok('the snippet only ever carries a login',
   !/["'<>\s]/.test((/githubusercontent\.com\/(\S+)\/output/.exec(markdownSnippet('a b<c'))
     || [, 'x"'])[1]), markdownSnippet('a b<c').slice(0, 120));
 ok('no user means a placeholder', markdownSnippet('').includes('/YOUR-USERNAME/YOUR-USERNAME/'));
-ok('the share link encodes the login', shareUrl('a-b') === SITE + '?user=a-b');
+ok('the share link carries the login', shareUrl('a-b', '') === SITE + '?user=a-b');
+// a share link reproduces the lawn on screen: the live query string, minus
+// every debug flag, is what travels
+ok('the share link keeps the year on screen',
+  shareUrl('', '?user=torvalds&year=2024&view=deep&autodrive=1')
+    === SITE + '?user=torvalds&year=2024',
+  shareUrl('', '?user=torvalds&year=2024&view=deep&autodrive=1'));
+ok('the share link keeps the demo seed', shareUrl('', '?seed=123') === SITE + '?seed=123');
+ok('a seed means nothing next to an account',
+  shareUrl('torvalds', '?seed=123') === SITE + '?user=torvalds');
+ok('a junk ?user= never reaches a share link',
+  shareUrl('', '?user=%22%3E%3Cscript%3E') === SITE,
+  shareUrl('', '?user=%22%3E%3Cscript%3E'));
+ok('the plain site is the fallback', shareUrl('', '') === SITE);
 
 // --- the workflow we hand people ------------------------------------------
 

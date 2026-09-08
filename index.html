@@ -272,6 +272,8 @@
       overflow-x: auto; white-space: pre;
     }
     .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    /* an account is loaded: there is nothing left to talk you into */
+    body[data-source="user"] #try { display: none; }
     .strip a { color: var(--green); }
     /* ?og=1 : the social card shot. board only, centred in the frame. */
     body[data-og="1"] { zoom: 1.3; padding: 30px 18px; gap: 14px; }

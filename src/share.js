@@ -4,6 +4,7 @@
 // clipboard and the button it flashes "copied!" on.
 
 import { formatTime } from './core/lawn.js';
+import { parseUserInput } from './core/github.js';
 
 export const SITE = 'https://evch1204.github.io/mow-your-commits/';
 export const REPO = 'https://github.com/evch1204/mow-your-commits';
@@ -12,37 +13,48 @@ export const REPO = 'https://github.com/evch1204/mow-your-commits';
 const RAW = 'https://raw.githubusercontent.com';
 
 /**
- * A GitHub login is ASCII letters, digits and hyphens, 39 characters at most.
- * `?user=` is a stranger's URL and it ends up in a filename, a raw.github URL
- * and an SVG caption, so keep only the part that could actually be a login.
- * A pasted profile URL still gives us one.
- */
-export function cleanUser(name) {
-  const s = String(name == null ? '' : name).trim();
-  const m = /github\.com\/([^/?#]+)/i.exec(s);
-  const raw = (m ? m[1] : s).replace(/^@/, '');
-  return (/[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/.exec(raw) || [''])[0].slice(0, 39);
-}
-
-/**
- * Whose lawn is on screen: ?user= wins, then the loader input if it exists
- * (plan B owns #user; this must keep working when it doesn't). '' for the demo.
+ * Whose lawn is on screen. The loader puts the login it actually resolved in
+ * the box, so that is the truth; `?user=` is the fallback for a page whose
+ * form has not loaded yet. Everything here goes through `parseUserInput`, the
+ * one sanitiser in the project: a stranger's `?user=` ends up in a filename,
+ * a raw.githubusercontent URL and an SVG caption. '' for the demo.
  */
 export function currentUser() {
-  const fromUrl = new URLSearchParams(location.search).get('user');
-  if (fromUrl) return cleanUser(fromUrl);
-  const input = document.getElementById('user');
-  return cleanUser(input && input.value);
+  const input = typeof document === 'undefined' ? null : document.getElementById('user');
+  const typed = input && input.value ? parseUserInput(input.value) : null;
+  if (typed) return typed;
+  const search = typeof location === 'undefined' ? '' : location.search;
+  return parseUserInput(new URLSearchParams(search).get('user')) || '';
 }
 
-/** A link that opens the site on somebody's own graph. */
-export function shareUrl(user) {
-  return user ? SITE + '?user=' + encodeURIComponent(user) : SITE;
+/** Only these travel in a share link; every debug flag stays at home. */
+const SHARE_FLAGS = ['user', 'year', 'seed'];
+
+/**
+ * A link that opens the site on the lawn you are looking at. The page keeps
+ * `?user=` and `?year=` in the address bar in step with the screen, so the
+ * live query string is what a share link carries.
+ * @param search override for tests; defaults to `location.search`.
+ */
+export function shareUrl(user, search) {
+  const live = new URLSearchParams(
+    search === undefined ? (typeof location === 'undefined' ? '' : location.search) : search,
+  );
+  const login = parseUserInput(user) || parseUserInput(live.get('user'));
+  const out = new URLSearchParams();
+  for (const key of SHARE_FLAGS) {
+    if (key === 'user') { if (login) out.set('user', login); continue; }
+    const v = live.get(key);
+    // a seed only picks a fake lawn, so it means nothing next to an account
+    if (v && /^\d+$/.test(v) && !(key === 'seed' && login)) out.set(key, v);
+  }
+  const q = out.toString();
+  return q ? SITE + '?' + q : SITE;
 }
 
 /** The `<picture>` block that goes in a profile README. */
 export function markdownSnippet(user) {
-  const u = cleanUser(user) || 'YOUR-USERNAME';
+  const u = parseUserInput(user) || 'YOUR-USERNAME';
   return `<picture>
   <source media="(prefers-color-scheme: dark)" srcset="${RAW}/${u}/${u}/output/lawn-dark.svg">
   <img alt="my GitHub contribution graph as a half-mowed lawn" src="${RAW}/${u}/${u}/output/lawn.svg">

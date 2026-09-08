@@ -176,6 +176,7 @@ function swapLawn(next, { first = false } = {}) {
   auto = 0;
   markYears();
   refreshTotals();
+  refreshPreview();     // the README picture is of the lawn on screen
   if (startCol !== null && !Number.isNaN(startCol)) placeMower(lawn, startCol);
   // the debug flags ran against the demo lawn; run them again on the real one
   if (first) {
@@ -216,7 +217,6 @@ function refreshTotals() {
   $('total').textContent = nf.format(lawn.totalContributions);
   $('ctotal').textContent = nf.format(lawn.totalContributions);
   $('span').textContent = periodLabel(lawn);
-  refreshPreview();
 }
 
 /** "-2 °C" with a real minus sign, so the HUD lines up. */
@@ -340,7 +340,10 @@ on('tryme', 'click', () => {
   if (name && name.trim()) location.search = '?user=' + encodeURIComponent(name.trim());
 });
 
-if (!params.get('user') && $('try')) $('try').hidden = false;
+// The try strip is for the demo lawn. Whether an account is on screen is
+// body[data-source], which the loader keeps honest: ?user= that failed to load
+// still leaves the demo up, and "back to the demo" brings the strip back.
+if ($('try')) $('try').hidden = false;
 if (ogShot) document.body.dataset.og = '1';
 
 
@@ -348,6 +351,7 @@ if (ogShot) document.body.dataset.og = '1';
 
 buildYears();
 refreshTotals();
+refreshPreview();
 setView(params.get('view') === 'deep' ? 'deep' : 'flat');
 deep.setCamera(startCam ? 'overview' : 'chase');
 setCamera(startCam);
