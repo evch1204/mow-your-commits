@@ -114,7 +114,9 @@ for (const b of document.querySelectorAll('#pad button')) {
 
 // --- views ---------------------------------------------------------------
 
-for (const b of document.querySelectorAll('[data-view]')) {
+// `button[...]`, not a bare `[data-view]`: <body data-view> carries the same
+// attribute, so the loose selector also bound this listener to the whole page.
+for (const b of document.querySelectorAll('button[data-view]')) {
   b.addEventListener('click', () => setView(b.dataset.view));
 }
 camBtn.addEventListener('click', () => setCamera(deep.toggleCamera()));
@@ -125,7 +127,7 @@ $('brag').addEventListener('click', copyBrag);
 function setView(name) {
   active = name;
   document.body.dataset.view = name;
-  for (const b of document.querySelectorAll('[data-view]')) {
+  for (const b of document.querySelectorAll('button[data-view]')) {
     b.setAttribute('aria-pressed', String(b.dataset.view === name));
   }
   camBtn.hidden = name !== 'deep';

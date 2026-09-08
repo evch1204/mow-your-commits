@@ -796,6 +796,16 @@ ok('finishing parks the scrolling board back at the card',
 ok('the mower stops dragging the board while the card is up',
   /active !== 'flat' \|\| !endcard\.hidden/.test(mainJs));
 
+// --- the view toggle ------------------------------------------------------
+// <body data-view> is how the CSS knows which renderer is showing, so it
+// answers `[data-view]` too: a bare selector binds the view-switch click
+// listener to the whole page and stamps aria-pressed on <body>.
+
+ok('the page body carries data-view', /<body[^>]*\sdata-view=/.test(indexHtml));
+ok('only the buttons are treated as the view toggle',
+  !/querySelectorAll\('\[data-view\]'\)/.test(mainJs)
+  && (mainJs.match(/querySelectorAll\('button\[data-view\]'\)/g) || []).length === 2);
+
 // --- the workflow we hand people ------------------------------------------
 
 /**
