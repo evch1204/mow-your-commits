@@ -642,6 +642,10 @@ export class Renderer3D {
 
   buildMower() {
     const g = new THREE.Group();
+    // Yaw first, then pitch and roll in the mower's own frame. With the default
+    // XYZ order the acceleration pitch was applied about the *world* x axis,
+    // which rolled the mower onto its side whenever it drove along the year.
+    g.rotation.order = 'YXZ';
     const orange = this.toon(0xd85a30);
     const darkOrange = this.toon(0xb84a22);
     const grey = this.toon(0x45454a);
@@ -1341,8 +1345,9 @@ export class Renderer3D {
     const idle = Math.sin(this.time * 60) * 0.004;
     mower.position.set(this.wx(m.x), idle + Math.abs(m.vel) * 0.06, this.wz(m.z));
     mower.rotation.y = Math.PI / 2 - m.angle;
-    this.tilt += (m.acc * 18 - this.tilt) * 0.15;
-    this.lean += ((m.turn || 0) * Math.min(1, Math.abs(m.vel) * 6) * 0.16 - this.lean) * 0.12;
+    // a few degrees of nose-up under throttle and a hint of body roll in turns
+    this.tilt += (m.acc * 6 - this.tilt) * 0.15;
+    this.lean += ((m.turn || 0) * Math.min(1, Math.abs(m.vel) * 6) * 0.05 - this.lean) * 0.12;
     mower.rotation.x = -this.tilt;
     mower.rotation.z = this.lean;
     mower.updateMatrixWorld();
