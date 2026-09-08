@@ -6,9 +6,9 @@ import {
   gridForYear, layoutYear, placeMower, isoDay,
 } from '../src/core/lawn.js';
 import {
-  GRASS, grassFor, tileColor, bladeColor, hexToRgb, mix, SEASON_TINT,
+  GRASS, grassFor, tileColor, bladeColor, hexToRgb, mix, SEASON_TINT, DANDELION,
 } from '../src/core/palette.js';
-import { lawnToSvg } from '../src/export/svg.js';
+import { lawnToSvg, GEOM } from '../src/export/svg.js';
 import { THEMES } from '../src/export/themes.js';
 import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
 import { workflowYaml, cleanUser, markdownSnippet, shareUrl, SITE } from '../src/share.js';
@@ -643,9 +643,21 @@ const svg = lawnToSvg(svgLawn);
 const nonVoid = svgLawn.cells.filter((c) => !c.void).length;
 
 ok('svg starts with an svg root', svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"'));
-ok('rolling lawn is 1058x257', svg.includes('viewBox="0 0 1058 257"'));
-ok('a 53-column year is 1077 wide',
-  lawnToSvg(createLawn(null, { seed: 1, year: 2025 })).includes('viewBox="0 0 1077 257"'));
+// the board's own geometry, so a move in render2d that GEOM did not follow
+// shows up here instead of in a lopsided README picture
+const boxFor = (cols) => `viewBox="0 0 ${GEOM.OX + cols * GEOM.PITCH + GEOM.PAD_R}`
+  + ` ${GEOM.OY + ROWS * GEOM.PITCH + GEOM.PAD_B}"`;
+ok('the exporter uses the 2D board geometry',
+  GEOM.OX === 58 && GEOM.OY === 60 && GEOM.PAD_B === 70 && GEOM.PITCH === 19,
+  `${GEOM.OX}/${GEOM.OY}/${GEOM.PAD_B}`);
+ok('rolling lawn is 1068x263', svg.includes(boxFor(COLS)) && svg.includes('viewBox="0 0 1068 263"'));
+ok('a 53-column year is 1087 wide',
+  lawnToSvg(createLawn(null, { seed: 1, year: 2025 })).includes(boxFor(53)));
+ok('the legend opens on the bare level-0 swatch',
+  (svg.slice(svg.indexOf('<g id="legend">')).match(/<rect/g) || []).length === 5);
+ok('winter caps the unmowed tiles with frost', svg.includes('<g id="frost">'));
+ok('the best days put up a dandelion', svg.includes(DANDELION.toLowerCase())
+  || svg.includes(DANDELION));
 const tileGroup = /<g id="tiles">([\s\S]*?)<\/g>/.exec(svg)[1];
 ok('one tile rect per non-void cell',
   (tileGroup.match(/<rect/g) || []).length === nonVoid,

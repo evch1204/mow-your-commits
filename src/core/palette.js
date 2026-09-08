@@ -28,7 +28,7 @@ export const SEASON_TINT = [
 ];
 
 /** Overgrown grass darkens and dulls the tile it is standing on. */
-const OVERGROWN = '#4E5A3C';
+export const OVERGROWN = '#4E5A3C';
 
 /** Snow dusting on winter ground, and the pale blades that grow through it. */
 export const FROST = '#F2F5F7';
@@ -105,11 +105,18 @@ export function mix(a, b, t) {
   return rgbToHex([x[0] + (y[0] - x[0]) * t, x[1] + (y[1] - x[1]) * t, x[2] + (y[2] - x[2]) * t]);
 }
 
+/**
+ * The colour ramp the rules below run on. The site always uses this one; the
+ * SVG exporter passes GitHub's dark-mode ramp instead, so the exported picture
+ * follows every formula here in both themes without copying any of them.
+ */
+export const LIGHT_RAMP = { greens: GITHUB, bare: BARE, frost: FROST, ink: INK };
+
 /** Season-tinted GitHub green for a level. Always recognisably GitHub. */
-export function levelGreen(level, season = 2) {
+export function levelGreen(level, season = 2, ramp = LIGHT_RAMP) {
   const [tint, amt] = SEASON_TINT[season] || SEASON_TINT[2];
-  if (level <= 0) return mix(BARE, tint, amt * 0.5);
-  return mix(GITHUB[level], tint, amt);
+  if (level <= 0) return mix(ramp.bare, tint, amt * 0.5);
+  return mix(ramp.greens[level], tint, amt);
 }
 
 /**
@@ -117,15 +124,15 @@ export function levelGreen(level, season = 2) {
  * mowed -> the exact (season-tinted) GitHub green: this is the reveal.
  * unmowed -> the same green darkened and dulled, because grass is hiding it.
  */
-export function tileColor(level, season, mowed, vigor = 0) {
-  const g = levelGreen(level, season);
+export function tileColor(level, season, mowed, vigor = 0, ramp = LIGHT_RAMP) {
+  const g = levelGreen(level, season, ramp);
   if (mowed) return g;                      // the reveal rule always wins
-  if (level <= 0) return season === 0 ? mix(g, FROST, 0.30) : g;
+  if (level <= 0) return season === 0 ? mix(g, ramp.frost, 0.30) : g;
   // overgrown; a busier day casts a deeper shadow on its own tile
   const over = shade(shade(mix(g, OVERGROWN, 0.34), 0.82), 1 - 0.12 * Math.max(0, Math.min(1, vigor)));
   // winter ground carries a snow dusting, but thin: the old 0.2 wash plus the
   // frost cap in 2D flattened L1..L4 into one pale slab.
-  return season === 0 ? mix(over, FROST, 0.12) : over;
+  return season === 0 ? mix(over, ramp.frost, 0.12) : over;
 }
 
 /** Multiply a hex colour brightness. */
@@ -138,10 +145,10 @@ export function shade(hex, k) {
 export function stripe(hex) { return mix(hex, '#FFFFFF', 0.17); }
 
 /** Grass blade colour: level 1 needs a push toward ink to show on its tile. */
-export function bladeColor(level, season = 2) {
+export function bladeColor(level, season = 2, ramp = LIGHT_RAMP) {
   if (season === 0) return WINTER_BLADE[level] || WINTER_BLADE[4];
-  const g = levelGreen(level, season);
-  return mix(g, INK, [0, 0.3, 0.15, 0.08, 0.06][level] || 0);
+  const g = levelGreen(level, season, ramp);
+  return mix(g, ramp.ink, [0, 0.3, 0.15, 0.08, 0.06][level] || 0);
 }
 
 /** Clipping / particle colour for a level. */

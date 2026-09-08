@@ -2,18 +2,18 @@
 // Action) and in the browser (the download buttons and the live preview).
 //
 // This is a port of src/render2d's drawTile / drawGrass / mower, so the picture
-// in a README and the board on the site are the same drawing. Two places keep
-// that port honest and must be re-synced together when render2d changes:
-//   GEOM   - every coordinate constant
-//   BLADES / HEIGHT / SPREAD - the grass grammar
-// Nothing else in this file hard-codes a number that render2d also owns.
+// in a README and the board on the site are the same drawing. Colours are not
+// duplicated here at all: palette.js runs every rule (tileColor, bladeColor,
+// cellTint, grassFor) on the theme's own ramp, so light and dark both follow
+// the site. Only GEOM and SPREAD mirror numbers render2d owns; re-sync them
+// together when render2d moves.
 
-import { MONTH_NAMES, seasonIndexOfCol } from '../core/lawn.js';
+import { MONTH_NAMES, SEASON_GLYPH, SEASON_OF_MONTH, seasonIndexOfCol } from '../core/lawn.js';
 import {
-  SEASON_TINT, WINTER_BLADE, AUTUMN_BLADE, FLOWERS, ORANGE, CREAM,
-  mix, shade, stripe,
+  AUTUMN_BLADE, FLOWERS, ORANGE, CREAM, SUN, PETAL, DANDELION, FLUFF,
+  grassFor, cellTint, tileColor, bladeColor, mix, stripe,
 } from '../core/palette.js';
-import { themeFor, OVERGROWN } from './themes.js';
+import { themeFor } from './themes.js';
 import { PATRICK_HAND_WOFF2_B64, FONT_STACK } from './font.js';
 
 /** Every coordinate render2d owns. Mirror of src/render2d/index.js. */
@@ -22,16 +22,17 @@ export const GEOM = {
   GAP: 3,
   PITCH: 19,
   R: 3,
-  OX: 48,
-  OY: 58,
+  OX: 58,
+  OY: 60,
   PAD_R: 22,
-  PAD_B: 66,
+  PAD_B: 70,
   // header
-  CAPTION_X: 48,
-  CAPTION_Y: 20,
+  CAPTION_X: 58,
+  CAPTION_Y: 22,
   CAPTION_SIZE: 16,
   MONTH_SIZE: 16,
   MONTH_DY: -22,
+  GLYPH_DY: -27,
   // fence above the grid
   FENCE_STEP: 14,
   FENCE_TOP: -16,
@@ -41,25 +42,25 @@ export const GEOM = {
   // dirt bed
   BED_INSET: 5,
   BED_R: 8,
-  BED_W: 1.6,
+  BED_W: 1.8,
   // Mon / Wed / Fri
-  LABEL_X: 4,
+  LABEL_X: 8,
   LABEL_SIZE: 15,
-  // legend
-  LEGEND_DY: 28,
-  LEGEND_SIZE: 15,
+  // legend: five swatches (bare + four greens), right-aligned to the bed
+  LEGEND_DY: 30,
+  LEGEND_SIZE: 16,
   LEGEND_GAP: 26,
-  LEGEND_MORE_W: 31,   // Patrick Hand 15px, measured once; only affects spacing
-  LEGEND_LESS_W: 26,
+  LEGEND_MORE_W: 35,   // Patrick Hand 16px, measured once; only affects spacing
   LEGEND_SCALE: 1.3,
   // mower
   MOWER_SCALE: 1.25,
 };
 
-/** The grass grammar: blades per level and their height. Mirror of render2d. */
-export const BLADES = [0, 3, 5, 7, 10];
-export const HEIGHT = [0, 6, 10, 13, 17];
-export const SPREAD = (level) => (level >= 3 ? GEOM.CELL * 0.68 : GEOM.CELL * 0.44);
+/**
+ * The grass grammar lives in palette.js (`GRASS` / `grassFor`) and is shared
+ * with both renderers; only the horizontal spread is a render2d number.
+ */
+export const SPREAD = (level) => (level >= 3 ? GEOM.CELL * 0.7 : GEOM.CELL * 0.44);
 
 const { CELL, GAP, PITCH, OX, OY } = GEOM;
 
@@ -113,27 +114,9 @@ function boxD(x, y, w, h, r) {
     + `V${n2(y + r)}A${n2(r)} ${n2(r)} 0 0 1 ${n2(x + r)} ${n2(y)}Z`;
 }
 
-// --- theme-aware colour rules (palette.js formulas, swappable ramp) --------
-
-function levelGreen(theme, level, season) {
-  const [tint, amt] = SEASON_TINT[season] || SEASON_TINT[2];
-  if (level <= 0) return mix(theme.bare, tint, amt * 0.5);
-  return mix(theme.greens[level], tint, amt);
-}
-
-function tileColor(theme, level, season, mowed) {
-  const g = levelGreen(theme, level, season);
-  if (mowed) return g;
-  if (level <= 0) return season === 0 ? mix(g, theme.frost, 0.5) : g;
-  const over = shade(mix(g, OVERGROWN, 0.34), 0.82);
-  return season === 0 ? mix(over, theme.frost, 0.42) : over;
-}
-
-function bladeColor(theme, level, season) {
-  if (season === 0) return WINTER_BLADE[level] || WINTER_BLADE[4];
-  const g = levelGreen(theme, level, season);
-  return mix(g, theme.ink, [0, 0.3, 0.15, 0.08, 0.06][level] || 0);
-}
+// --- theme-aware colour rules ------------------------------------------
+// No formulas live here: palette.js runs them, on the theme's own ramp, so the
+// exported picture follows the site in light and in dark.
 
 // --- options --------------------------------------------------------------
 
@@ -180,15 +163,18 @@ const py = (z) => OY + z * PITCH - GAP / 2;
 
 /**
  * One overgrown tuft, as path data pushed into `bag` (a Map keyed by
- * "colour|width"). A literal port of render2d's drawGrass + blade.
+ * "colour|width"). A literal port of render2d's drawGrass + blade: the blades
+ * are laid out first (so the two tallest of a level 3/4 day can take a darker
+ * tip), then drawn, and every number comes from `grassFor(level, vigor)`.
  */
-function tuft(bag, dots, x, y, cell, season, theme, o, scale) {
+function tuft(bag, dots, over, x, y, cell, season, theme, o, scale) {
   const level = cell.level;
   if (cell.void || level === 0) return;
   const mowed = cell.mowedX;
   const shrink = mowed ? 0.12 : 1;                    // mowT is 1 in a still
-  const n = Math.max(1, Math.round(BLADES[level] * (mowed ? 0.5 : 1)));
-  const h0 = HEIGHT[level] * shrink * scale;
+  const g = grassFor(level, cell.vigor || 0);
+  const n = Math.max(1, Math.round(g.blades * (mowed ? 0.5 : 1)));
+  const h0 = g.height * shrink * scale;
   if (h0 < 1.2) return;
 
   const rnd = rng((cell.col * 31 + cell.row * 7) * 131 + o.seed * 131 + 1);
@@ -198,31 +184,75 @@ function tuft(bag, dots, x, y, cell, season, theme, o, scale) {
   const cx = x + CELL / 2;
   const base = y + CELL - 1;
   const spread = SPREAD(level) * scale;
-  const color = bladeColor(theme, level, season);
-  const w = 1.25 + level * 0.22;
+  const color = cellTint(bladeColor(level, season, theme), cell.col, cell.row);
+  const dark = mix(color, theme.ink, 0.25);
+  const bias = (hash(cell.col) - 0.5) * 4;            // the patch leans as one
+  const w = n2(g.width);
 
+  const blades = [];
   for (let i = 0; i < n; i++) {
     const f = n === 1 ? 0.5 : i / (n - 1);
-    const bx = cx - spread + f * spread * 2 + (rnd() - 0.5) * 2;
-    const h = h0 * (0.72 + rnd() * 0.5);
-    const lean = (rnd() - 0.5) * (5 + level);
-    const turned = season === 3 && rnd() < 0.15;
-    const col = turned ? AUTUMN_BLADE : color;
+    blades.push({
+      bx: cx - spread + f * spread * 2 + (rnd() - 0.5) * 2,
+      h: h0 * (0.8 + rnd() * 0.4),
+      lean: bias + (rnd() - 0.5) * (5 + level),
+      turned: season === 3 && rnd() < 0.15,
+      tall: false,
+    });
+  }
+  if (level >= 3) {
+    [...blades].sort((a, b) => b.h - a.h).slice(0, 2).forEach((b) => { b.tall = true; });
+  }
 
-    const d = `M${n2(wob(bx, 0.5))} ${n2(base)}`
-      + `Q${n2(wob(bx + lean * 0.35, 0.8))} ${n2(wob(base - h * 0.62, 0.8))} `
-      + `${n2(wob(bx + lean, 0.6))} ${n2(wob(base - h, 0.6))}`;
-    const key = col + '|' + n2(w);
-    if (!bag.has(key)) bag.set(key, []);
-    bag.get(key).push(d);
+  for (let i = 0; i < blades.length; i++) {
+    const b = blades[i];
+    const col = b.turned ? AUTUMN_BLADE : color;
+    const d = `M${n2(wob(b.bx, 0.5))} ${n2(base)}`
+      + `Q${n2(wob(b.bx + b.lean * 0.35, 0.8))} ${n2(wob(base - b.h * 0.62, 0.8))} `
+      + `${n2(wob(b.bx + b.lean, 0.6))} ${n2(wob(base - b.h, 0.6))}`;
+    push(bag, col + '|' + w, d);
 
-    const tip = [bx + lean, base - h];
+    const tip = [b.bx + b.lean, base - b.h];
+    if (b.tall && !b.turned) {
+      // the top third of the tallest blades falls into shadow
+      push(bag, dark + '|' + w,
+        lineD(tip[0] - b.lean * 0.22, tip[1] + b.h * 0.3, tip[0], tip[1]));
+    }
     if (level === 4 && !mowed && i % 4 === 1) push(dots, col, circleD(tip[0], tip[1], 1.3));
     if (season === 0 && level >= 3 && !mowed && i % 3 === 0) {
       push(dots, '#FFFFFF', circleD(tip[0], tip[1] - 0.4, 1.5));
     }
   }
 
+  // the best days of the year put up a dandelion and a seed-head puff
+  if (cell.heroic && !mowed && season !== 0) {
+    const st = h0 + 5;
+    for (let d = 0; d < 2; d++) {
+      const dx = cx + (d ? 4.5 : -4) + (rnd() - 0.5) * 2;
+      const top = base - st * (d ? 0.82 : 1);
+      const hx = dx + bias * 0.4;
+      // render2d draws the stalk with line(), which wobbles six numbers
+      push(bag, theme.ink + '|1',
+        `M${n2(wob(dx, 0.6))} ${n2(wob(base, 0.6))}`
+        + `Q${n2(wob((dx + hx) / 2, 0.9))} ${n2(wob((base + top) / 2, 0.9))} `
+        + `${n2(wob(hx, 0.6))} ${n2(wob(top, 0.6))}`);
+      if (d === 0) {
+        push(dots, DANDELION, circleD(hx, top, 2.4));
+        push(over, theme.ink + '|0.8', circleD(hx, top, 2.4));
+      } else {
+        push(dots, FLUFF, circleD(hx, top, 2.2));
+        for (let k = 0; k < 4; k++) {
+          const a = k * 1.57 + 0.4;
+          push(over, theme.ink + '|0.6', lineD(
+            hx + Math.cos(a) * 1.6, top + Math.sin(a) * 1.6,
+            hx + Math.cos(a) * 3.4, top + Math.sin(a) * 3.4,
+          ));
+        }
+      }
+    }
+  }
+
+  // spring puts a couple of flowers in the thin grass
   if (season === 1 && level <= 2 && !mowed) {
     for (let f = 0; f < 2; f++) {
       const col = FLOWERS[Math.floor(rnd() * FLOWERS.length)];
@@ -240,6 +270,18 @@ function batched(map, attrsFor) {
   const out = [];
   for (const [key, ds] of map) out.push(`<path ${attrsFor(key)} d="${ds.join('')}"/>`);
   return out.join('');
+}
+
+/** "#hex|width" keyed path bags: every blade of one colour in one <path>. */
+const strokeAttrs = (k) => {
+  const [col, w] = k.split('|');
+  return `stroke="${col}" stroke-width="${w}"`;
+};
+
+/** A stroked group: blades, stalks, the ink on a dandelion. */
+function strokes(id, map) {
+  return `<g${id ? ` id="${id}"` : ''} fill="none" stroke-linecap="round">`
+    + batched(map, strokeAttrs) + '</g>';
 }
 
 /** The riding mower, in its own local space. Port of render2d's mower(). */
@@ -354,14 +396,25 @@ export function lawnToSvg(lawn, opts) {
       + ` fill="${theme.pencil}">${esc(o.caption)}</text>`);
   }
 
-  // 3. month labels, GitHub's rule: skip a month that owns fewer than 3 columns
+  // 3. month labels, GitHub's rule: skip a month that owns fewer than 3 columns.
+  // The first month of a season carries the same little doodle the canvas draws.
   const months = [];
+  const glyphs = [];
+  let lastSeason = -1;
   for (const ms of lawn.monthStarts) {
     if (ms.span < 3) continue;
-    months.push(`<text x="${n2(tileX(ms.col))}" y="${n2(OY + GEOM.MONTH_DY)}">`
-      + `${MONTH_NAMES[ms.month].slice(0, 3)}</text>`);
+    const name = MONTH_NAMES[ms.month].slice(0, 3);
+    const lx = tileX(ms.col);
+    months.push(`<text x="${n2(lx)}" y="${n2(OY + GEOM.MONTH_DY)}">${name}</text>`);
+    const sn = SEASON_OF_MONTH[ms.month];
+    if (sn !== lastSeason) {
+      glyphs.push(seasonGlyph(lx + name.length * GEOM.MONTH_SIZE * 0.42 + 12,
+        OY + GEOM.GLYPH_DY, sn, theme));
+      lastSeason = sn;
+    }
   }
   parts.push(`<g id="months" font-size="${GEOM.MONTH_SIZE}" fill="${theme.pencil}">${months.join('')}</g>`);
+  parts.push(`<g id="glyphs">${glyphs.join('')}</g>`);
 
   // 4. fence ticks + the rule they hang from
   const fence = [];
@@ -373,15 +426,12 @@ export function lawnToSvg(lawn, opts) {
   parts.push(`<path id="fence" d="${fence.join('')}" fill="none" stroke="${theme.pencil}"`
     + ` stroke-width="${GEOM.FENCE_W}"/>`);
 
-  // 5. dirt bed under the tiles
-  const bi = GEOM.BED_INSET;
-  parts.push(`<rect id="bed" x="${OX - bi}" y="${OY - bi}" width="${n2(gw + bi * 2)}"`
-    + ` height="${n2(rows * PITCH - GAP + bi * 2)}" rx="${GEOM.BED_R}"`
-    + ` fill="${mix(theme.dirt, theme.paper, 0.62)}" stroke="${theme.ink}"`
-    + ` stroke-width="${GEOM.BED_W}"/>`);
+  // 5. dirt bed under the tiles, coloured by the climate of each column
+  parts.push(bed(lawn, theme, gw, rows));
 
   // 6. tiles
   const tiles = [];
+  const caps = [];
   const cuts = [];
   for (const c of lawn.cells) {
     if (c.void) continue;
@@ -389,12 +439,14 @@ export function lawnToSvg(lawn, opts) {
     const x = tileX(c.col);
     const y = tileY(c.row);
     tiles.push(tileRect(c, x, y, season, theme, c.mowedX));
+    caps.push(frostCap(c, x, y, season, c.mowedX));
     if (c.mowedX && c.level > 0) {
       cuts.push(lineD(x + 2, y + 6, x + CELL - 2, y + 6));
       cuts.push(lineD(x + 2, y + 11, x + CELL - 2, y + 11));
     }
   }
   parts.push(`<g id="tiles">${tiles.join('')}</g>`);
+  if (caps.some(Boolean)) parts.push(`<g id="frost">${caps.join('')}</g>`);
   if (cuts.length) {
     parts.push(`<path id="cuts" d="${cuts.join('')}" fill="none" stroke="#FFFFFF"`
       + ` stroke-opacity="0.24" stroke-width="1"/>`);
@@ -403,19 +455,17 @@ export function lawnToSvg(lawn, opts) {
   // 7. grass, batched by colour and width
   const bag = new Map();
   const dots = new Map();
+  const over = new Map();
   for (const c of lawn.cells) {
     if (c.void || !c.level) continue;
-    tuft(bag, dots, tileX(c.col), tileY(c.row), c, seasonIndexOfCol(lawn, c.col), theme, o, 1);
+    tuft(bag, dots, over, tileX(c.col), tileY(c.row), c, seasonIndexOfCol(lawn, c.col), theme, o, 1);
   }
-  parts.push(`<g id="grass" fill="none" stroke-linecap="round">`
-    + batched(bag, (k) => {
-      const [col, w] = k.split('|');
-      return `stroke="${col}" stroke-width="${w}"`;
-    })
-    + `</g>`);
+  parts.push(strokes('grass', bag));
 
-  // 8. dressing: pebbles on bare dirt, then snowflakes and fallen leaves
+  // 8. dressing: pebbles on bare dirt, snowflakes, leaves, dandelion heads,
+  //    then the ink that sits on top of them (disc outlines, seed-head ticks)
   parts.push(`<g id="dressing">${dressing(lawn, theme, o, dots)}</g>`);
+  if (over.size) parts.push(strokes('ink', over));
 
   // 8b. the regrowing overlay the animated mower cuts away, frame by frame
   if (animRow >= 0) parts.push(coverGroup(lawn, theme, o, animRow, cols));
@@ -460,16 +510,92 @@ export function lawnToSvg(lawn, opts) {
   return head + parts.join('') + '</svg>';
 }
 
+/**
+ * The bed the tiles sit in, coloured by climate: cold grey soil under the
+ * winter columns, warm brown under summer, blending one column either side of
+ * a season change. Port of render2d's drawBed().
+ */
+function bed(lawn, theme, gw, rows) {
+  const bi = GEOM.BED_INSET;
+  const x0 = OX - bi, y0 = OY - bi;
+  const w = gw + bi * 2, h = rows * PITCH - GAP + bi * 2;
+  const soil = (sn) => mix(theme.soil[sn], theme.paper, 0.58);
+  const bands = [];
+  for (let c = 0; c < lawn.cols; c++) {
+    const sn = seasonIndexOfCol(lawn, c);
+    const prev = seasonIndexOfCol(lawn, Math.max(0, c - 1));
+    const bx = c === 0 ? x0 : tileX(c) - GAP / 2;
+    const bw = (c === lawn.cols - 1 ? x0 + w : tileX(c + 1) - GAP / 2) - bx;
+    bands.push(`<rect x="${n2(bx)}" y="${n2(y0)}" width="${n2(bw)}" height="${n2(h)}"`
+      + ` fill="${prev === sn ? soil(sn) : mix(soil(prev), soil(sn), 0.5)}"/>`);
+  }
+  const round = `<rect x="${n2(x0)}" y="${n2(y0)}" width="${n2(w)}" height="${n2(h)}"`
+    + ` rx="${GEOM.BED_R}"`;
+  return `<clipPath id="bedclip">${round}/></clipPath>`
+    + `<g id="bed" clip-path="url(#bedclip)">${bands.join('')}`
+    // the tiles are set into the bed, so the top edge catches a shadow
+    + `<rect x="${n2(x0)}" y="${n2(y0)}" width="${n2(w)}" height="2"`
+    + ` fill="rgba(${theme.inkRgb},0.08)"/></g>`
+    + round + ` fill="none" stroke="${theme.ink}" stroke-width="${GEOM.BED_W}"/>`;
+}
+
+/** The 10px doodle for a season, over the first month that belongs to it. */
+function seasonGlyph(x, y, season, theme) {
+  const kind = SEASON_GLYPH[season];
+  if (kind === 'snow') {
+    const d = [];
+    for (let k = 0; k < 3; k++) {
+      const a = k * 1.047 + 0.3;
+      d.push(lineD(x - Math.cos(a) * 4, y - Math.sin(a) * 4, x + Math.cos(a) * 4, y + Math.sin(a) * 4));
+    }
+    return `<path d="${d.join('')}" fill="none" stroke="#85B7EB" stroke-width="1.1"/>`;
+  }
+  if (kind === 'flower') {
+    let out = '';
+    for (let k = 0; k < 5; k++) {
+      const a = k * 1.257;
+      out += `<path d="${circleD(x + Math.cos(a) * 2.8, y + Math.sin(a) * 2.8, 1.6)}"`
+        + ` fill="${PETAL[k % 2]}"/>`;
+    }
+    return out + `<path d="${circleD(x, y, 1.5)}" fill="${DANDELION}"/>`;
+  }
+  if (kind === 'sun') {
+    const rays = [];
+    for (let k = 0; k < 8; k++) {
+      const a = k * 0.785;
+      rays.push(lineD(x + Math.cos(a) * 5, y + Math.sin(a) * 5, x + Math.cos(a) * 7, y + Math.sin(a) * 7));
+    }
+    return `<path d="${circleD(x, y, 4)}" fill="${SUN}"/>`
+      + `<path d="${rays.join('')}" fill="none" stroke="${theme.ink}" stroke-width="0.9"/>`;
+  }
+  return `<ellipse cx="${n2(x)}" cy="${n2(y)}" rx="6" ry="3.5" fill="${ORANGE}"`
+    + ` transform="rotate(-22.92 ${n2(x)} ${n2(y)})"/>`
+    + `<path d="${lineD(x - 5, y + 1.4, x + 5, y - 1.4)}" fill="none"`
+    + ` stroke="${theme.ink}" stroke-width="1"/>`;
+}
+
 function tileRect(cell, x, y, season, theme, mowed) {
-  const under = tileColor(theme, cell.level, season, false);
-  const over = tileColor(theme, cell.level, season, true);
+  const under = tileColor(cell.level, season, false, cell.vigor || 0, theme);
+  const over = tileColor(cell.level, season, true, 0, theme);
   let fill = cell.level === 0 ? under : (mowed ? over : under);
   if (mowed && cell.level > 0 && cell.col % 2 === 0) fill = mix(fill, stripe(fill), 0.75);
   // the canvas wobbles every vertex; a whole-tile tilt is the cheap equivalent
-  const rot = hash(cell.col * 31 + cell.row * 7) * 1.4 - 0.7;
   return `<rect x="${n2(x)}" y="${n2(y)}" width="${CELL}" height="${CELL}" rx="${GEOM.R}"`
     + ` fill="${fill}" stroke="rgba(${theme.inkRgb},${cell.level === 0 ? 0.3 : 0.22})"`
-    + ` stroke-width="1" transform="rotate(${n2(rot)} ${n2(x + CELL / 2)} ${n2(y + CELL / 2)})"/>`;
+    + ` stroke-width="1"${tilt(cell, x, y)}/>`;
+}
+
+/** The per-tile doodle tilt, shared by the tile and its frost cap. */
+function tilt(cell, x, y) {
+  const rot = hash(cell.col * 31 + cell.row * 7) * 1.4 - 0.7;
+  return ` transform="rotate(${n2(rot)} ${n2(x + CELL / 2)} ${n2(y + CELL / 2)})"`;
+}
+
+/** Winter: snow settles along the top edge instead of washing the whole tile. */
+function frostCap(cell, x, y, season, mowed) {
+  if (season !== 0 || mowed || cell.level === 0 || cell.void) return '';
+  return `<rect x="${n2(x + 1.5)}" y="${n2(y + 1)}" width="${CELL - 3}" height="2.5"`
+    + ` fill="#FFFFFF" fill-opacity="0.34"${tilt(cell, x, y)}/>`;
 }
 
 /** Pebbles on bare dirt + the seasonal dressing render2d scatters on level 0. */
@@ -528,8 +654,12 @@ function coverGroup(lawn, theme, o, row, cols) {
     const y = tileY(c.row);
     const bag = new Map();
     const dots = new Map();
-    const grown = { col: c.col, row: c.row, level: c.level, void: false, mowedX: false };
-    tuft(bag, dots, x, y, grown, season, theme, o, 1);
+    const over = new Map();
+    const grown = {
+      col: c.col, row: c.row, level: c.level, void: false, mowedX: false,
+      vigor: c.vigor || 0, heroic: c.heroic,
+    };
+    tuft(bag, dots, over, x, y, grown, season, theme, o, 1);
     // keyTimes has to be strictly increasing and end at exactly 1, so the snap
     // that follows t never reaches 1 itself: on the last column t is already
     // 1 - 0.5/cols and a flat +0.01 would collide with the final key.
@@ -537,12 +667,10 @@ function coverGroup(lawn, theme, o, row, cols) {
     const t2 = Math.min(t + 0.01, (1 + t) / 2);
     groups.push(`<g opacity="${c.col < at ? 0 : 1}">`
       + tileRect(c, x, y, season, theme, false)
-      + `<g fill="none" stroke-linecap="round">`
-      + batched(bag, (k) => {
-        const [col, w] = k.split('|');
-        return `stroke="${col}" stroke-width="${w}"`;
-      })
-      + `</g>${batched(dots, (col) => `fill="${col}"`)}`
+      + frostCap(c, x, y, season, false)
+      + strokes('', bag)
+      + batched(dots, (col) => `fill="${col}"`)
+      + strokes('', over)
       + `<animate attributeName="opacity" values="1;1;0;0"`
       + ` keyTimes="0;${t.toFixed(4)};${t2.toFixed(4)};1"`
       + ` dur="${LOOP}s" repeatCount="indefinite"/></g>`);
@@ -562,33 +690,37 @@ function mowerAt(lawn, o, cols, rows) {
   return { x: px(col), y: py(row + 0.5), deg: 0 };
 }
 
-/** "less [tuft tuft tuft tuft] more", bottom right, same as the canvas key. */
+/** "less [bare 1 2 3 4] more", bottom right: the canvas key, verbatim. */
 function legend(lawn, theme, o) {
   const y = OY + lawn.rows * PITCH + GEOM.LEGEND_DY;
   const right = OX + lawn.cols * PITCH - GAP;
   const midY = y + CELL / 2 + 1 + GEOM.LEGEND_SIZE * 0.35;
-  const x0 = right - GEOM.LEGEND_MORE_W - GEOM.LEGEND_GAP - (4 * PITCH - GAP);
+  const swatches = 5 * PITCH - GAP;
+  const x0 = right - GEOM.LEGEND_MORE_W - GEOM.LEGEND_GAP - swatches;
 
   const bag = new Map();
   const dots = new Map();
+  const over = new Map();
   const tiles = [];
-  for (let l = 1; l <= 4; l++) {
-    const x = x0 + (l - 1) * PITCH;
-    const fake = { col: l, row: 0, level: l, mowed: false, mowedX: false, count: 0, void: false };
-    tiles.push(tileRect(fake, x, y, 2, theme, false));
-    tuft(bag, dots, x, y, fake, 2, theme, o, GEOM.LEGEND_SCALE);
+  for (let l = 0; l <= 4; l++) {
+    const x = x0 + l * PITCH;
+    // level 0 shows mowed, so the key opens on the bare tile the graph uses
+    const fake = {
+      col: l, row: 0, level: l, count: 0, void: false,
+      vigor: 0.5, heroic: false, mowed: l === 0, mowedX: l === 0,
+    };
+    tiles.push(tileRect(fake, x, y, 2, theme, l === 0));
+    tuft(bag, dots, over, x, y, fake, 2, theme, o, GEOM.LEGEND_SCALE);
   }
+  const text = (x, anchor, str) =>
+    `<text x="${n2(x)}" y="${n2(midY)}" text-anchor="${anchor}"`
+    + ` font-size="${GEOM.LEGEND_SIZE}" fill="${theme.pencil}">${str}</text>`;
   return `<g id="legend">`
-    + `<text x="${n2(x0 - GEOM.LEGEND_GAP)}" y="${n2(midY)}" text-anchor="end"`
-    + ` font-size="${GEOM.LEGEND_SIZE}" fill="${theme.pencil}">less</text>`
+    + text(x0 - GEOM.LEGEND_GAP, 'end', 'less')
     + tiles.join('')
-    + `<g fill="none" stroke-linecap="round">`
-    + batched(bag, (k) => {
-      const [col, w] = k.split('|');
-      return `stroke="${col}" stroke-width="${w}"`;
-    })
-    + `</g>${batched(dots, (col) => `fill="${col}"`)}`
-    + `<text x="${n2(right)}" y="${n2(midY)}" text-anchor="end"`
-    + ` font-size="${GEOM.LEGEND_SIZE}" fill="${theme.pencil}">more</text>`
+    + strokes('', bag)
+    + batched(dots, (col) => `fill="${col}"`)
+    + strokes('', over)
+    + text(right, 'end', 'more')
     + `</g>`;
 }

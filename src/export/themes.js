@@ -4,10 +4,9 @@
 //
 // Pure data. No DOM, no dependencies.
 
-import { PAPER, INK, PENCIL, CREAM, DIRT, BARE, GITHUB, FROST } from '../core/palette.js';
-
-/** palette.js keeps OVERGROWN private; the exporter needs the same value. */
-export const OVERGROWN = '#4E5A3C';
+import {
+  PAPER, INK, PENCIL, CREAM, DIRT, BARE, GITHUB, FROST, DIRT_BY_SEASON,
+} from '../core/palette.js';
 
 export const THEMES = {
   light: {
@@ -19,6 +18,7 @@ export const THEMES = {
     bare: BARE,
     greens: GITHUB,
     frost: FROST,
+    soil: DIRT_BY_SEASON,
     inkRgb: '44,44,42',
     dark: false,
   },
@@ -32,6 +32,8 @@ export const THEMES = {
     greens: ['#161B22', '#0E4429', '#006D32', '#26A641', '#39D353'],
     // snow on a dark ground still has to be dark, or winter blows out the ramp
     frost: '#74787C',
+    // the climate bed, dark-mode: the same cold-to-warm walk, near-black
+    soil: ['#232B2E', '#2E2A21', '#2B2A1E', '#302A1F'],
     inkRgb: '230,237,243',
     dark: true,
   },
