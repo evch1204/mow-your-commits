@@ -15,6 +15,7 @@ const OY = 60;                 //              room for month labels and glyphs
 const PAD_R = 22;
 const PAD_B = 70;              // legend strip
 const FONT = "'Patrick Hand', cursive";
+const CLIP_MAX = 260;          // flying clippings alive at once
 
 /** Stable per-column noise, so a patch of grass leans as one. */
 function hash(n) {
@@ -327,6 +328,10 @@ export class Renderer2D {
         });
       }
     }
+    // clippings only age inside draw(), and the view you are not looking at
+    // never draws, so cap the pool or a whole lawn mowed in flat view lands in
+    // one frame the moment you switch
+    if (this.clippings.length > CLIP_MAX) this.clippings.splice(0, this.clippings.length - CLIP_MAX);
     if (quiet) return;
     const last = lawn.cells[lawn.lastMowed];
     if (last && !last.void) {

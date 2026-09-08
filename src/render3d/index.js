@@ -15,6 +15,7 @@ const SLOTS = MAX_COLS * ROWS;
 const TUFT_BLADES = [3, 5, 8, 12];
 const TUFT_HEIGHT = [0.35, 0.6, 0.9, 1.25];
 const MOWED_SCALE = 0.18;
+const CLIP_MAX = 260;          // flying clippings alive at once
 
 // Hemisphere light tint per season: cool in winter, warm in summer.
 const HEMI = ['#DCE9F4', '#EEF8E6', '#FFF6DE', '#FBEBD6'];
@@ -1026,6 +1027,15 @@ export class Renderer3D {
         cm.userData.life = 28;
         this.scene.add(cm);
         this.clippings.push(cm);
+      }
+    }
+    // clippings only age inside draw(), and the view you are not looking at
+    // never draws: without a cap a lawn mowed in flat view would hand the 3D
+    // scene a few thousand cubes the moment you switch to it
+    if (this.clippings.length > CLIP_MAX) {
+      for (const c of this.clippings.splice(0, this.clippings.length - CLIP_MAX)) {
+        this.scene.remove(c);
+        if (c.userData.puff) c.material.dispose();
       }
     }
     if (sum > 0 && !quiet) this.spawnPopup(sum, heroic);
