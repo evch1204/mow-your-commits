@@ -222,19 +222,22 @@ export function backToDemo() {
 export function currentLogin() { return loaded; }
 
 export function initLoader(next = {}) {
+  // Look first and bail before assigning: a page without the form left `els`
+  // half-built, so the `if (!els)` guards elsewhere passed and threw instead.
+  const form = $('loader');
+  const tokenbox = $('tokenbox');
+  if (!form || !tokenbox) return;
   els = {
-    form: $('loader'),
+    form,
     user: $('user'),
     load: $('load'),
     demo: $('demo'),
     status: $('loadstate'),
-    tokenbox: $('tokenbox'),
-    tokenSummary: $('tokenbox').querySelector('summary'),
+    tokenSummary: tokenbox.querySelector('summary'),
     token: $('token'),
     save: $('savetoken'),
     forget: $('forgettoken'),
   };
-  if (!els.form) return;
   hooks = { onData: next.onData || (() => {}), onDemo: next.onDemo || (() => {}) };
 
   // A token must never live in a URL. If someone links one, drop it on sight.

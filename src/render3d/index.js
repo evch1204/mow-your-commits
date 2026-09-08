@@ -137,7 +137,6 @@ export class Renderer3D {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(SKY_HORIZON[2]);
     this.trees = [];
-    this.hills = [];
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 600);
     this.lookAt = new THREE.Vector3(0, 0.5, 0);
     this.resize();
@@ -333,7 +332,6 @@ export class Renderer3D {
       h.position.set(Math.cos(a) * rx, -0.95, Math.sin(a) * rz);
       h.scale.set(14 + ((i * 7) % 11), 3 + (i % 3), 8 + ((i * 5) % 5));
       parent.add(h);
-      this.hills.push(h);
     }
   }
 
@@ -395,7 +393,6 @@ export class Renderer3D {
     apron.rotation.x = -Math.PI / 2;
     apron.position.set(0, -0.95, 0);
     g.add(apron);
-    this.hills.length = 0;
     this.buildHills(g, cols);
 
     const base = this.inked(new THREE.BoxGeometry(cols + 1.6, 0.7, ROWS + 1.5), this.toon(DIRT), 1.015);
@@ -455,8 +452,7 @@ export class Renderer3D {
    */
   buildSigns() {
     const cols = this.lawn.cols;
-    if (this.signs) for (const s of this.signs) this.board.remove(s);
-    this.signs = [];
+    // buildBoard has already thrown the old board away, signs and all.
     this.signPlanes = [];
     let lastX = -Infinity;
     let n = 0;
@@ -483,7 +479,6 @@ export class Renderer3D {
       const st = new THREE.Mesh(new THREE.BoxGeometry(0.1, top - 0.55, 0.1), this.wood);
       st.position.set(x, (top - 0.55) / 2 + 0.3, this.fenceZ - 0.12);
       this.board.add(pl, st);
-      this.signs.push(pl, st);
       this.signPlanes.push(pl);
     }
   }
@@ -506,7 +501,6 @@ export class Renderer3D {
     const mat = this.wobbly(new THREE.MeshToonMaterial({
       gradientMap: this.grad, side: THREE.DoubleSide,
     }), { sway: true, boil: 0.012 });
-    this.grassMat = mat;
     this.grass = [];
     for (let l = 0; l < 4; l++) {
       const geo = tuftGeometry(TUFT_BLADES[l], TUFT_HEIGHT[l], 7919 + l * 131);
@@ -670,7 +664,6 @@ export class Renderer3D {
     const chute = this.inked(new THREE.BoxGeometry(0.2, 0.13, 0.3), grey, 1.08);
     chute.position.set(0.58, 0.2, 0.1);
     chute.rotation.y = -0.5; g.add(chute);
-    this.chute = chute;
 
     // wheels: small at the front, big at the back. That is the signature.
     const fw = new THREE.CylinderGeometry(0.14, 0.14, 0.1, 12); fw.rotateZ(Math.PI / 2);
@@ -1042,7 +1035,6 @@ export class Renderer3D {
 
   /** @param quiet true for the end-card confetti: clippings only, no label. */
   onMowed(indices, quiet) {
-    const m = this.lawn.mower;
     // clippings fly out of the chute on the mower's right
     const chute = this.localToWorld(0.66, 0.24, 0.1);
     const right = this.rightVector();
@@ -1467,6 +1459,4 @@ export class Renderer3D {
 
     this.renderer.render(this.scene, cam);
   }
-
-  dispose() { this.renderer.dispose(); }
 }

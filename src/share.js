@@ -7,7 +7,6 @@ import { formatTime } from './core/lawn.js';
 import { parseUserInput } from './core/github.js';
 
 export const SITE = 'https://evch1204.github.io/mow-your-commits/';
-export const REPO = 'https://github.com/evch1204/mow-your-commits';
 
 /** The `USER/USER` profile repo the Action commits into. */
 const RAW = 'https://raw.githubusercontent.com';
@@ -95,7 +94,7 @@ jobs:
  */
 const flashing = new WeakMap();
 
-export function flash(btn, message, label) {
+function flash(btn, message, label) {
   if (!btn) return;
   const live = flashing.get(btn);
   if (live) clearTimeout(live.timer);
@@ -139,7 +138,3 @@ export function xUrl(text) {
   return 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text);
 }
 
-export function redditUrl(url, title) {
-  return 'https://www.reddit.com/submit?url=' + encodeURIComponent(url)
-    + '&title=' + encodeURIComponent(title);
-}

@@ -11,9 +11,10 @@
 
 export const API = 'https://github-contributions-api.jogruber.de/v4/';
 
-/** Kinds of GithubError: what the UI turns into a sentence. */
-export const ERROR_KINDS = ['invalid', 'notfound', 'ratelimited', 'network', 'malformed', 'token'];
-
+/**
+ * Every failure in here, with a `kind` the UI turns into a sentence:
+ * `invalid`, `notfound`, `ratelimited`, `network`, `malformed`, `token`.
+ */
 export class GithubError extends Error {
   constructor(kind, message, extra = {}) {
     super(message || kind);
@@ -159,8 +160,8 @@ export async function fetchContributions(login, opts = {}) {
 // triplets: torvalds' 16 years come to ~130 KB that way, and a warm reload
 // then costs no request at all.
 
-export const CACHE_VERSION = 1;
-export const CACHE_PREFIX = 'mow:gh:v' + CACHE_VERSION + ':';
+const CACHE_VERSION = 1;
+const CACHE_PREFIX = 'mow:gh:v' + CACHE_VERSION + ':';
 export const CACHE_TTL = 3600e3;          // an hour, same as the API's own cache
 export const STALE_OK = 7 * 86400e3;      // older than fresh, still better than nothing
 export const MAX_CACHED = 6;
@@ -241,11 +242,6 @@ export function writeCache(login, data, now = Date.now(), storage = defaultStora
       return true;
     } catch { return false; }
   }
-}
-
-export function clearCache(storage = defaultStorage()) {
-  if (!storage) return;
-  try { for (const k of cacheKeys(storage)) storage.removeItem(k); } catch { /* ignore */ }
 }
 
 // --- the optional token path ----------------------------------------------

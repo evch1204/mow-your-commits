@@ -1,44 +1,7 @@
+// Shaping the days src/core/github.js fetches into the grids the lawn is built
+// from. Pure data: no DOM, no dependencies.
+
 import { layoutYear, gridForRolling, isoDay } from './lawn.js';
-
-// Shaping contribution days into the grids the lawn is built from.
-//
-// The site fetches days from src/core/github.js; parseContributions below is the
-// other way in: GitHub renders the graph as a table of
-// <td data-date="YYYY-MM-DD" data-level="0-4"> cells, which a browser extension
-// can read straight off the profile page (no CORS, no API).
-
-/**
- * Parse contribution cells out of a GitHub profile page or the
- * https://github.com/users/<name>/contributions fragment.
- * @param {string|Document} htmlOrDoc
- * @returns {Array<{date: string, level: number, count: number}>} oldest first
- */
-export function parseContributions(htmlOrDoc) {
-  const doc = typeof htmlOrDoc === 'string'
-    ? new DOMParser().parseFromString(htmlOrDoc, 'text/html')
-    : htmlOrDoc;
-
-  const tds = Array.from(doc.querySelectorAll('td[data-date]'));
-  const tooltips = new Map();
-  for (const tt of doc.querySelectorAll('tool-tip[for]')) {
-    tooltips.set(tt.getAttribute('for'), tt.textContent || '');
-  }
-
-  const days = tds.map((td) => {
-    const id = td.getAttribute('id');
-    const text = tooltips.get(id) || '';
-    const match = text.match(/(\d+|No) contribution/);
-    const count = match ? (match[1] === 'No' ? 0 : parseInt(match[1], 10)) : 0;
-    return {
-      date: td.getAttribute('data-date'),
-      level: parseInt(td.getAttribute('data-level') || '0', 10),
-      count,
-    };
-  });
-
-  days.sort((a, b) => (a.date < b.date ? -1 : 1));
-  return days;
-}
 
 /**
  * Filter a parsed list down to one calendar year and pad it into GitHub's
@@ -76,16 +39,4 @@ export function yearsIn(days) {
   const set = new Set();
   for (const d of days) if (d.date) set.add(Number(d.date.slice(0, 4)));
   return [...set].sort((a, b) => b - a);
-}
-
-/**
- * Trim a full-year list down to exactly COLS*ROWS days, aligned so that
- * the first entry is a Sunday (GitHub's week start). Drop the partial
- * leading week if needed.
- */
-export function alignToGrid(days, cols = 52, rows = 7) {
-  let i = 0;
-  while (i < days.length && new Date(days[i].date + 'T00:00:00').getDay() !== 0) i++;
-  const aligned = days.slice(i, i + cols * rows);
-  return aligned;
 }

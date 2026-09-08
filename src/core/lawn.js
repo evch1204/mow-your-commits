@@ -20,13 +20,6 @@ export const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // 0 winter, 1 spring, 2 summer, 3 autumn (northern hemisphere)
 export const SEASON_OF_MONTH = [0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 0];
 
-export const SEASONS = [
-  { name: 'winter', ground: '#E9EEEA', grass: '#A9C4B8', sky: '#E4EDF3' },
-  { name: 'spring', ground: '#DDEBC8', grass: '#97C459', sky: '#EAF3FB' },
-  { name: 'summer', ground: '#CFE3B0', grass: '#639922', sky: '#DDEFFB' },
-  { name: 'autumn', ground: '#EBE3B8', grass: '#A0A33A', sky: '#F5E7D2' },
-];
-
 /** What the HUD says is happening, one word per season. */
 export const SEASON_WORD = ['snowing', 'blossom', 'sunny', 'leaves falling'];
 
@@ -349,20 +342,12 @@ export function monthAt(lawn, x) {
   return lawn.monthOfCol[col];
 }
 
-export function seasonAt(lawn, x) {
-  return SEASONS[SEASON_OF_MONTH[monthAt(lawn, x)]];
-}
-
 export function seasonIndexAt(lawn, x) {
   return SEASON_OF_MONTH[monthAt(lawn, x)];
 }
 
 export function seasonIndexOfCol(lawn, col) {
   return SEASON_OF_MONTH[lawn.monthOfCol[Math.max(0, Math.min(lawn.cols - 1, col))]];
-}
-
-export function seasonOfCol(lawn, col) {
-  return SEASONS[seasonIndexOfCol(lawn, col)];
 }
 
 /** Rough air temperature, in degrees C, for wherever the mower is standing. */
@@ -384,9 +369,6 @@ export function formatDay(isoDate) {
   return DAY_NAMES[d.getDay()] + ', ' + d.getDate() + ' '
     + MONTH_NAMES[d.getMonth()].slice(0, 3) + ' ' + d.getFullYear();
 }
-
-/** The old name for formatDay. */
-export const formatDate = formatDay;
 
 /** "in the last year" / "in 2025". Used by the lede, the end card and the brag. */
 export function periodLabel(lawn) {

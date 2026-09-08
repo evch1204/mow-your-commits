@@ -68,8 +68,8 @@ function normalize(lawn, opts) {
   const cols = lawn.cols;
   const rows = lawn.rows;
   const asIs = o.mowed === 'as-is';
-  let frac = 0.5;
-  if (!asIs && o.mowed != null) frac = Math.max(0, Math.min(1, Number(o.mowed) || 0));
+  const frac = asIs || o.mowed == null
+    ? 0.5 : Math.max(0, Math.min(1, Number(o.mowed) || 0));
 
   // "mowed for export": the first k cells in row-major order (Sun..Sat top to
   // bottom, left to right within a row), which is the order you actually mow in.
@@ -78,10 +78,8 @@ function normalize(lawn, opts) {
 
   return {
     theme: themeFor(o.theme),
-    themeName: o.theme === 'dark' ? 'dark' : 'light',
     asIs,
     k,
-    frac,
     // a junk seed would make every jitter NaN and every route cost NaN, and the
     // seed can come off a query string, so it is checked rather than trusted
     seed: o.seed != null && Number.isFinite(Number(o.seed)) ? Number(o.seed) : 7,
@@ -229,7 +227,7 @@ function strokes(id, map) {
 }
 
 /** The riding mower, in its own local space. Port of render2d's mower(). */
-function mowerGroup(theme, inner) {
+function mowerGroup(theme) {
   const ink = theme.ink;
   const p = [];
   const el = (d, fill, sw) =>
@@ -289,7 +287,7 @@ function mowerGroup(theme, inner) {
   el(cap, ORANGE, 1.1);
   p.push(`<path d="${circleD(-4.6, -1.1, 0.6)}${circleD(-4.6, 1.1, 0.6)}" fill="${ink}"/>`);
 
-  return `<g stroke-linejoin="round" stroke-linecap="round">${p.join('')}${inner || ''}</g>`;
+  return `<g stroke-linejoin="round" stroke-linecap="round">${p.join('')}</g>`;
 }
 
 // --- the whole picture ----------------------------------------------------
@@ -425,7 +423,7 @@ export function lawnToSvg(lawn, opts) {
     // under animateMotion the heading comes from rotate="auto", so the art
     // group carries the scale and nothing else
     const art = `<g transform="${route ? '' : `rotate(${n2(m.deg)}) `}`
-      + `scale(${GEOM.MOWER_SCALE})">` + mowerGroup(theme, '') + `</g>`;
+      + `scale(${GEOM.MOWER_SCALE})">` + mowerGroup(theme) + `</g>`;
     if (!route) {
       parts.push(`<g id="mower" transform="translate(${n2(m.x)},${n2(m.y)})">${art}</g>`);
     } else {

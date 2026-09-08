@@ -82,7 +82,6 @@ const keymap = {
 const nf = new Intl.NumberFormat('en-US');
 let tagUntil = 0;
 let endShown = false;
-let auto = 0;
 
 // --- input ---------------------------------------------------------------
 
@@ -185,16 +184,20 @@ function markYears() {
   }
 }
 
+/** Take down the end card and the last-mowed tag: this run is over. */
+function clearRunState() {
+  endcard.hidden = true;
+  tagEl.hidden = true;
+  endShown = false;
+  tagUntil = 0;
+}
+
 /** Put a freshly built lawn on screen, in both renderers. */
 function swapLawn(next, { first = false } = {}) {
   lawn = next;
   flat.setLawn(lawn);
   deep.setLawn(lawn);
-  endcard.hidden = true;
-  tagEl.hidden = true;
-  endShown = false;
-  tagUntil = 0;
-  auto = 0;
+  clearRunState();
   markYears();
   refreshTotals();
   refreshPreview();     // the README picture is of the lawn on screen
@@ -252,11 +255,7 @@ function regrow() {
   resetLawn(lawn);
   flat.reset();
   deep.reset();
-  endcard.hidden = true;
-  tagEl.hidden = true;
-  endShown = false;
-  tagUntil = 0;
-  auto = 0;
+  clearRunState();
   stage.focus();
 }
 
@@ -346,7 +345,7 @@ on('cpmd', 'click', (e) => copy(markdownSnippet(currentUser()), e.currentTarget)
 on('cpyml', 'click', (e) => copy(workflowYaml(), e.currentTarget));
 
 
-on('sharex', 'click', (e) => {
+on('sharex', 'click', () => {
   const text = bragText(lawn, currentUser(), periodLabel(lawn), whoseLawn());
   if (navigator.share) { navigator.share({ text }).catch(() => {}); return; }
   window.open(xUrl(text), '_blank', 'noopener');
@@ -468,7 +467,6 @@ function prewarm(seconds) {
   const steps = Math.round(seconds / DT);
   let recent = [];
   for (let i = 0; i < steps; i++) {
-    auto += DT;
     autoDrive();
     const mowed = tick(lawn, input, DT);
     flat.sampleTrack();     // no frames run in here, so lay the tyre trail by hand
@@ -562,10 +560,7 @@ function frame(ts) {
   const dt = Math.min(0.05, (ts - last) / 1000);
   last = ts;
 
-  if (autodrive && !lawn.finished) {
-    auto += dt;
-    autoDrive();
-  }
+  if (autodrive && !lawn.finished) autoDrive();
 
   const mowed = tick(lawn, input, dt);
   if (mowed.length) showMowed(mowed);
