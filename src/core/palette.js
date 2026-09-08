@@ -142,7 +142,8 @@ export function tileColor(level, season, mowed, vigor = 0, ramp = LIGHT_RAMP) {
   if (mowed) return g;                      // the reveal rule always wins
   if (level <= 0) return season === 0 ? mix(g, ramp.frost, 0.30) : g;
   // overgrown; a busier day casts a deeper shadow on its own tile
-  const over = shade(shade(mix(g, OVERGROWN, 0.34), 0.82), 1 - 0.12 * Math.max(0, Math.min(1, vigor)));
+  const v = Math.max(0, Math.min(1, vigor));
+  const over = shade(shade(mix(g, OVERGROWN, 0.34), 0.82), 1 - 0.12 * v);
   // winter ground carries a snow dusting, but thin: the old 0.2 wash plus the
   // frost cap in 2D flattened L1..L4 into one pale slab.
   return season === 0 ? mix(over, ramp.frost, 0.12) : over;

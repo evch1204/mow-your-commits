@@ -130,7 +130,9 @@ export class Renderer2D {
     const over = tileColor(cell.level, season, true);
     const t = cell.mowed ? Math.min(1, cell.mowT * 1.4) : 0;
     let fill = cell.level === 0 ? under : mix(under, over, t);
-    if (cell.mowed && cell.level > 0 && cell.col % 2 === 0) fill = mix(fill, stripe(fill), t * 0.75);
+    if (cell.mowed && cell.level > 0 && cell.col % 2 === 0) {
+      fill = mix(fill, stripe(fill), t * 0.75);
+    }
 
     ctx.fillStyle = fill;
     this.roundedPath(x, y, CELL, CELL, R, 0.7);
@@ -677,7 +679,9 @@ export class Renderer2D {
       for (let k = 0; k < 5; k++) {
         const a = k * 1.257;
         ctx.fillStyle = PETAL[k % 2];
-        ctx.beginPath(); ctx.arc(x + Math.cos(a) * 2.8, y + Math.sin(a) * 2.8, 1.6, 0, 7); ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x + Math.cos(a) * 2.8, y + Math.sin(a) * 2.8, 1.6, 0, 7);
+        ctx.fill();
       }
       ctx.fillStyle = DANDELION;
       ctx.beginPath(); ctx.arc(x, y, 1.5, 0, 7); ctx.fill();

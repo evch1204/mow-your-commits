@@ -242,7 +242,8 @@ function mowerGroup(theme) {
   // blade inside the deck (frozen at spin 0)
   const blade = [];
   for (const o of [0, 1.57]) {
-    blade.push(lineD(6 + Math.cos(o) * 6.5, Math.sin(o) * 6.5, 6 - Math.cos(o) * 6.5, -Math.sin(o) * 6.5));
+    blade.push(lineD(6 + Math.cos(o) * 6.5, Math.sin(o) * 6.5,
+      6 - Math.cos(o) * 6.5, -Math.sin(o) * 6.5));
   }
   p.push(`<path d="${blade.join('')}" fill="none" stroke="#B8B6AE" stroke-width="1.4"/>`);
 
@@ -261,13 +262,16 @@ function mowerGroup(theme) {
   for (const s of [-1, 1]) {
     ellipse(-9, s * 9.5, 4.8, 3, '#2C2C2A', 1.2);
     const tread = [];
-    for (let t = -3; t <= 3; t++) tread.push(lineD(-9 + t * 1.4, s * 9.5 - 2.4, -9 + t * 1.4, s * 9.5 + 2.4));
+    for (let t = -3; t <= 3; t++) {
+      tread.push(lineD(-9 + t * 1.4, s * 9.5 - 2.4, -9 + t * 1.4, s * 9.5 + 2.4));
+    }
     p.push(`<path d="${tread.join('')}" fill="none" stroke="#55534E" stroke-width="1"/>`);
     ellipse(-9, s * 9.5, 1.5, 1.1, CREAM, 0.8);
   }
 
   // steering wheel on its column
-  p.push(`<ellipse cx="-1.5" cy="0" rx="3.2" ry="3.2" fill="none" stroke="${ink}" stroke-width="1.3"/>`);
+  p.push(`<ellipse cx="-1.5" cy="0" rx="3.2" ry="3.2" fill="none"`
+    + ` stroke="${ink}" stroke-width="1.3"/>`);
   p.push(`<path d="${lineD(-4.4, 0, 1.4, 0)}" fill="none" stroke="${ink}" stroke-width="1.3"/>`);
 
   // seat, driver, arms reaching the wheel
@@ -356,7 +360,8 @@ export function lawnToSvg(lawn, opts) {
       lastSeason = sn;
     }
   }
-  parts.push(`<g id="months" font-size="${GEOM.MONTH_SIZE}" fill="${theme.pencil}">${months.join('')}</g>`);
+  parts.push(`<g id="months" font-size="${GEOM.MONTH_SIZE}" fill="${theme.pencil}">`
+    + `${months.join('')}</g>`);
   if (glyphs.length) parts.push(`<g id="glyphs">${glyphs.join('')}</g>`);
 
   // 4. fence ticks + the rule they hang from
@@ -529,7 +534,8 @@ function seasonGlyph(x, y, season, theme) {
     const d = [];
     for (let k = 0; k < 3; k++) {
       const a = k * 1.047 + 0.3;
-      d.push(lineD(x - Math.cos(a) * 4, y - Math.sin(a) * 4, x + Math.cos(a) * 4, y + Math.sin(a) * 4));
+      d.push(lineD(x - Math.cos(a) * 4, y - Math.sin(a) * 4,
+        x + Math.cos(a) * 4, y + Math.sin(a) * 4));
     }
     return `<path d="${d.join('')}" fill="none" stroke="#85B7EB" stroke-width="1.1"/>`;
   }
@@ -546,7 +552,8 @@ function seasonGlyph(x, y, season, theme) {
     const rays = [];
     for (let k = 0; k < 8; k++) {
       const a = k * 0.785;
-      rays.push(lineD(x + Math.cos(a) * 5, y + Math.sin(a) * 5, x + Math.cos(a) * 7, y + Math.sin(a) * 7));
+      rays.push(lineD(x + Math.cos(a) * 5, y + Math.sin(a) * 5,
+        x + Math.cos(a) * 7, y + Math.sin(a) * 7));
     }
     return `<path d="${circleD(x, y, 4)}" fill="${SUN}"/>`
       + `<path d="${rays.join('')}" fill="none" stroke="${theme.ink}" stroke-width="0.9"/>`;

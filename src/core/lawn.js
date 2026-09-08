@@ -193,7 +193,8 @@ export function createLawn(data, opts = {}) {
     }
   }
   for (let i = 0; i < monthStarts.length; i++) {
-    monthStarts[i].span = (i + 1 < monthStarts.length ? monthStarts[i + 1].col : cols) - monthStarts[i].col;
+    const next = i + 1 < monthStarts.length ? monthStarts[i + 1].col : cols;
+    monthStarts[i].span = next - monthStarts[i].col;
   }
 
   // Per-cell "vigor": where this day sits inside its own level's count range.

@@ -58,7 +58,8 @@ console.log('lawn sim smoke test');
 
 const lawn = createLawn(null, { seed: 20260904 });
 
-ok('rolling grid is 52x7', lawn.cols === COLS && lawn.cells.length === COLS * ROWS, `got ${lawn.cells.length}`);
+ok('rolling grid is 52x7', lawn.cols === COLS && lawn.cells.length === COLS * ROWS,
+  `got ${lawn.cells.length}`);
 ok('rolling grid has no voids', lawn.cells.every((c) => !c.void));
 ok('has contributions', lawn.totalContributions > 200, `got ${lawn.totalContributions}`);
 ok('has mowable cells', lawn.mowable > 50 && lawn.mowable < COLS * ROWS, `got ${lawn.mowable}`);
@@ -86,7 +87,8 @@ ok('mowedContributions matches the cells',
   `${lawn.mowedContributions} vs ${sumMowed(lawn)}`);
 ok('lastMowed points at a mowed cell',
   lawn.lastMowed >= 0 && lawn.cells[lawn.lastMowed].mowed === true);
-ok('lastMowed describes a day', /\d{1,2} \w{3} \d{4}/.test(describeCell(lawn.cells[lawn.lastMowed])),
+ok('lastMowed describes a day',
+  /\d{1,2} \w{3} \d{4}/.test(describeCell(lawn.cells[lawn.lastMowed])),
   describeCell(lawn.cells[lawn.lastMowed]));
 
 const afterRow0 = lawn.mowed;
@@ -133,7 +135,8 @@ ok('regrow clears lastMowed', lawn.lastMowed === -1);
 ok('regrow clears the clock', lawn.time === 0 && lawn.started === false);
 ok('regrow unfinishes', lawn.finished === false);
 ok('regrow parks the mower',
-  lawn.mower.x === -1.6 && lawn.mower.z === ROWS / 2 && lawn.mower.vel === 0 && lawn.mower.angle === 0);
+  lawn.mower.x === -1.6 && lawn.mower.z === ROWS / 2
+    && lawn.mower.vel === 0 && lawn.mower.angle === 0);
 ok('regrow regrows the grass',
   lawn.cells.every((c) => c.mowed === (c.level === 0) && c.mowT === (c.level === 0 ? 1 : 0)));
 
@@ -162,7 +165,8 @@ ok('year grid starts on a Sunday and ends on a Saturday',
 const y25 = createLawn(null, { seed: 20260904, year: 2025 });
 ok('picked year keeps its cols', y25.cols === 53 && y25.cells.length === 53 * ROWS);
 ok('picked year is tagged', y25.year === 2025);
-ok('void cells exist at both ends', y25.cells[0].void === true && y25.cells[y25.cells.length - 1].void === true);
+ok('void cells exist at both ends',
+  y25.cells[0].void === true && y25.cells[y25.cells.length - 1].void === true);
 ok('voids are 3 before 1 Jan 2025 and 3 after 31 Dec',
   y25.cells.filter((c) => c.void).length === 6, `got ${y25.cells.filter((c) => c.void).length}`);
 ok('first real day is 1 Jan', y25.cells.find((c) => !c.void).date === '2025-01-01');
@@ -358,22 +362,30 @@ ok('fetchContributions returns a normalised lawn source',
     && fetched.years.join(',') === '2026,2025,2024' && Array.isArray(fetched.last));
 ok('fetchContributions stamps the fetch time', fetched.fetchedAt > 0);
 
-ok('404 is notfound',
-  await kindOf(() => fetchContributions('nobody', { fetch: fakeFetch({ all: { status: 404 }, last: { status: 404 } }) })) === 'notfound');
-ok('429 is ratelimited',
-  await kindOf(() => fetchContributions('torvalds', { fetch: fakeFetch({ all: { status: 429 }, last: { status: 429 } }) })) === 'ratelimited');
-ok('400 is invalid',
-  await kindOf(() => fetchContributions('torvalds', { fetch: fakeFetch({ all: { status: 400 }, last: { status: 400 } }) })) === 'invalid');
-ok('500 is network',
-  await kindOf(() => fetchContributions('torvalds', { fetch: fakeFetch({ all: { status: 503 }, last: { status: 503 } }) })) === 'network');
+const bothWith = (r) => fakeFetch({ all: r, last: r });
+const statusIs = (code) => kindOf(
+  () => fetchContributions('torvalds', { fetch: bothWith({ status: code }) }));
+ok('404 is notfound', await statusIs(404) === 'notfound');
+ok('429 is ratelimited', await statusIs(429) === 'ratelimited');
+ok('400 is invalid', await statusIs(400) === 'invalid');
+ok('500 is network', await statusIs(503) === 'network');
 ok('a throwing fetch is network',
-  await kindOf(() => fetchContributions('torvalds', { fetch: async () => { throw new TypeError('Failed to fetch'); } })) === 'network');
+  await kindOf(() => fetchContributions('torvalds', {
+    fetch: async () => { throw new TypeError('Failed to fetch'); },
+  })) === 'network');
 ok('a non-JSON body is malformed',
   await kindOf(() => fetchContributions('torvalds', {
-    fetch: fakeFetch({ all: () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('bad'); } }), last: { status: 200, body } }),
+    fetch: fakeFetch({
+      all: () => ({
+        ok: true, status: 200, json: async () => { throw new SyntaxError('bad'); },
+      }),
+      last: { status: 200, body },
+    }),
   })) === 'malformed');
 ok('rubbish JSON is malformed',
-  await kindOf(() => fetchContributions('torvalds', { fetch: fakeFetch({ all: { status: 200, body: { nope: 1 } }, last: { status: 200, body } }) })) === 'malformed');
+  await kindOf(() => fetchContributions('torvalds', {
+    fetch: fakeFetch({ all: { status: 200, body: { nope: 1 } }, last: { status: 200, body } }),
+  })) === 'malformed');
 
 const halfDown = await fetchContributions('torvalds', {
   fetch: fakeFetch({ all: { status: 200, body }, last: { status: 500 } }), today: TODAY,
@@ -482,14 +494,20 @@ function fakeGraphql(steps) {
     const step = steps[Math.min(n, steps.length - 1)];
     n++;
     if (typeof step === 'function') return step(body);
-    return { ok: step.status >= 200 && step.status < 300, status: step.status, json: async () => step.body };
+    return {
+      ok: step.status >= 200 && step.status < 300,
+      status: step.status,
+      json: async () => step.body,
+    };
   };
 }
 
 const years2 = { data: { user: { contributionsCollection: { contributionYears: [2026, 2025] } } } };
 const viaToken = await fetchViaGraphql('torvalds', 'github_pat_test', {
   today: TODAY,
-  fetch: fakeGraphql([{ status: 200, body: years2 }, { status: 200, body: fixture('graphql-year') }]),
+  fetch: fakeGraphql([
+    { status: 200, body: years2 }, { status: 200, body: fixture('graphql-year') },
+  ]),
 });
 ok('fetchViaGraphql builds the same shape as the public path',
   viaToken.login === 'torvalds' && viaToken.years.join(',') === '2026,2025'
@@ -503,12 +521,17 @@ await fetchViaGraphql('torvalds', 'github_pat_test', {
   fetch: fakeGraphql([
     { status: 200, body: { data: { user: { contributionsCollection: { contributionYears: [
       2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013] } } } } },
-    (body) => { q.push(body.query); return { ok: true, status: 200, json: async () => fixture('graphql-year') }; },
+    (b) => {
+      q.push(b.query);
+      return { ok: true, status: 200, json: async () => fixture('graphql-year') };
+    },
   ]),
 });
-ok('fourteen years are asked for in two batches of at most twelve', q.length === 2, String(q.length));
+ok('fourteen years are asked for in two batches of at most twelve',
+  q.length === 2, String(q.length));
 ok('only the first batch asks for the rolling window',
-  q[0].includes('last: contributionsCollection') && !q[1].includes('last: contributionsCollection'));
+  q[0].includes('last: contributionsCollection')
+    && !q[1].includes('last: contributionsCollection'));
 ok('the first batch asks for twelve years',
   (q[0].match(/y\d{4}: contributionsCollection\(/g) || []).length === 12);
 
@@ -518,17 +541,20 @@ ok('401 is a token error',
 ok('403 is ratelimited',
   await kindOf(() => fetchViaGraphql('torvalds', 'github_pat_test', {
     fetch: fakeGraphql([{ status: 403 }]) })) === 'ratelimited');
-ok('a NOT_FOUND error is notfound',
-  await kindOf(() => fetchViaGraphql('nobody', 'github_pat_test', {
-    fetch: fakeGraphql([{ status: 200, body: { errors: [{ type: 'NOT_FOUND', message: 'x' }] } }]) })) === 'notfound');
+const gqlErrorIs = (type) => kindOf(
+  () => fetchViaGraphql('torvalds', 'github_pat_test', {
+    fetch: fakeGraphql([{ status: 200, body: { errors: [{ type, message: 'x' }] } }]),
+  }));
+ok('a NOT_FOUND error is notfound', await gqlErrorIs('NOT_FOUND') === 'notfound');
 ok('a RATE_LIMITED error is ratelimited',
-  await kindOf(() => fetchViaGraphql('torvalds', 'github_pat_test', {
-    fetch: fakeGraphql([{ status: 200, body: { errors: [{ type: 'RATE_LIMITED', message: 'x' }] } }]) })) === 'ratelimited');
+  await gqlErrorIs('RATE_LIMITED') === 'ratelimited');
 ok('a dead api.github.com is network',
   await kindOf(() => fetchViaGraphql('torvalds', 'github_pat_test', {
     fetch: async () => { throw new TypeError('Failed to fetch'); } })) === 'network');
 ok('no token at all is a token error',
-  await kindOf(() => fetchViaGraphql('torvalds', '', { fetch: async () => { throw new Error('never'); } })) === 'token');
+  await kindOf(() => fetchViaGraphql('torvalds', '', {
+    fetch: async () => { throw new Error('never'); },
+  })) === 'token');
 
 ok('every graphql request is a POST to api.github.com with the token',
   gqCalls > 0 && gqAuthOk, gqCalls + ' calls');
@@ -563,14 +589,19 @@ if (liveAt !== -1) {
 }
 // --- text: one scale, middle dots, no stray hyphens -----------------------
 
-ok('formatDay reads like a date', formatDay('2025-09-14') === 'Sun, 14 Sep 2025', formatDay('2025-09-14'));
+ok('formatDay reads like a date',
+  formatDay('2025-09-14') === 'Sun, 14 Sep 2025', formatDay('2025-09-14'));
 const DOT = ' \u00b7 ';
 const dz = { date: '2025-09-14', count: 0, level: 0 };
 const d1 = { date: '2025-09-14', count: 1, level: 1 };
 const d12 = { date: '2025-09-14', count: 12, level: 3 };
-ok('describeCell: none', describeCell(dz) === 'Sun, 14 Sep 2025' + DOT + 'no contributions', describeCell(dz));
-ok('describeCell: one', describeCell(d1) === 'Sun, 14 Sep 2025' + DOT + '1 contribution', describeCell(d1));
-ok('describeCell: many', describeCell(d12) === 'Sun, 14 Sep 2025' + DOT + '12 contributions', describeCell(d12));
+const SEP14 = 'Sun, 14 Sep 2025';
+ok('describeCell: none',
+  describeCell(dz) === SEP14 + DOT + 'no contributions', describeCell(dz));
+ok('describeCell: one',
+  describeCell(d1) === SEP14 + DOT + '1 contribution', describeCell(d1));
+ok('describeCell: many',
+  describeCell(d12) === SEP14 + DOT + '12 contributions', describeCell(d12));
 ok('no hyphen separators anywhere',
   [dz, d1, d12].every((d) => !describeCell(d).includes(' - ')));
 ok('periodLabel rolling', periodLabel(createLawn(null, { year: null })) === 'in the last year');
@@ -585,7 +616,8 @@ ok('vigor is in range', vg.cells.every((c) => c.vigor >= 0 && c.vigor <= 1));
 ok('level 0 has no vigor', vg.cells.every((c) => c.level > 0 || c.vigor === 0));
 ok('vigor rises with count inside a level', (() => {
   for (let l = 1; l <= 4; l++) {
-    const inLevel = vg.cells.filter((c) => !c.void && c.level === l).sort((a, b) => a.count - b.count);
+    const inLevel = vg.cells.filter((c) => !c.void && c.level === l)
+      .sort((a, b) => a.count - b.count);
     for (let i = 1; i < inLevel.length; i++) {
       if (inLevel[i].vigor < inLevel[i - 1].vigor - 1e-9) return false;
     }
@@ -622,14 +654,19 @@ ok('grassFor clamps out-of-range vigor',
 
 // --- winter still reads as a graph ---------------------------------------
 
-const lum = (hex) => { const [r, g, b] = hexToRgb(hex); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+const lum = (hex) => {
+  const [r, g, b] = hexToRgb(hex);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
 const winterTile = [0, 1, 2, 3, 4].map((l) => lum(tileColor(l, 0, false, 0.5)));
 ok('winter tiles keep four densities apart',
   [1, 2, 3, 4].every((l) => winterTile[l - 1] - winterTile[l] > 8),
   winterTile.map((v) => v.toFixed(0)).join(' '));
 ok('winter blades stay lighter than their own tile',
   [1, 2, 3, 4].every((l) => lum(bladeColor(l, 0)) - lum(tileColor(l, 0, false, 0.5)) > 15),
-  [1, 2, 3, 4].map((l) => (lum(bladeColor(l, 0)) - lum(tileColor(l, 0, false, 0.5))).toFixed(0)).join(' '));
+  [1, 2, 3, 4]
+    .map((l) => (lum(bladeColor(l, 0)) - lum(tileColor(l, 0, false, 0.5))).toFixed(0))
+    .join(' '));
 ok('winter blades step apart level by level',
   [2, 3, 4].every((l) => lum(bladeColor(l - 1, 0)) - lum(bladeColor(l, 0)) > 12));
 ok('mowed winter tiles are the GitHub greens, lightest to darkest',
@@ -657,7 +694,8 @@ const boxFor = (cols) => `viewBox="0 0 ${GEOM.OX + cols * GEOM.PITCH + GEOM.PAD_
 ok('the exporter uses the 2D board geometry',
   GEOM.OX === 58 && GEOM.OY === 60 && GEOM.PAD_B === 70 && GEOM.PITCH === 19,
   `${GEOM.OX}/${GEOM.OY}/${GEOM.PAD_B}`);
-ok('rolling lawn is 1068x263', svg.includes(boxFor(COLS)) && svg.includes('viewBox="0 0 1068 263"'));
+ok('rolling lawn is 1068x263',
+  svg.includes(boxFor(COLS)) && svg.includes('viewBox="0 0 1068 263"'));
 ok('a 53-column year is 1087 wide',
   lawnToSvg(createLawn(null, { seed: 1, year: 2025 })).includes(boxFor(53)));
 ok('the legend opens on the bare level-0 swatch',
@@ -680,7 +718,8 @@ for (const bit of ['>Mon<', '>Wed<', '>Fri<', '>less<', '>more<', 'data:font/wof
 }
 const noNs = svg.replace(/xmlns="[^"]*"/, '');
 ok('svg loads nothing external', !/https?:\/\//.test(noNs));
-ok('svg has no script or foreignObject', !svg.includes('<script') && !svg.includes('<foreignObject'));
+ok('svg has no script or foreignObject',
+  !svg.includes('<script') && !svg.includes('<foreignObject'));
 
 ok('mowed 0 parks no mower', !lawnToSvg(svgLawn, { mowed: 0 }).includes('id="mower"'));
 ok('mowed 0 mows nothing', !lawnToSvg(svgLawn, { mowed: 0 }).includes('id="cuts"'));
@@ -841,8 +880,12 @@ for (const el of animSvg.matchAll(/<animate\s([^>]*)\/>/g)) {
   const vs = /values="([^"]*)"/.exec(el[1]);
   if (!kt || !vs) { smilOk = false; smilWhy = 'no keyTimes/values'; break; }
   const times = kt[1].split(';').map(Number);
-  if (times.length !== vs[1].split(';').length) { smilOk = false; smilWhy = 'count ' + kt[1]; break; }
-  if (times[0] !== 0 || times[times.length - 1] !== 1) { smilOk = false; smilWhy = 'ends ' + kt[1]; break; }
+  if (times.length !== vs[1].split(';').length) {
+    smilOk = false; smilWhy = 'count ' + kt[1]; break;
+  }
+  if (times[0] !== 0 || times[times.length - 1] !== 1) {
+    smilOk = false; smilWhy = 'ends ' + kt[1]; break;
+  }
   for (let i = 1; i < times.length; i++) {
     if (!(times[i] > times[i - 1])) { smilOk = false; smilWhy = kt[1]; break; }
   }
@@ -910,7 +953,8 @@ ok('plain lays one neutral bed', (/<g id="bed"[^>]*>((?:(?!<\/g>).)*)/.exec(plai
   .match(/<rect/g) || []).length === 2);
 ok('plain keeps the dandelions: they are data, not weather', plain.includes(DANDELION));
 ok('bg=0 leaves the background transparent', !plain.includes('<rect width="100%"'));
-ok('bg=0 drops the paper halo on the day labels', !plain.includes(`stroke="${THEMES.light.paper}"`));
+ok('bg=0 drops the paper halo on the day labels',
+  !plain.includes(`stroke="${THEMES.light.paper}"`));
 ok('the paper is back when only the weather is off',
   lawnToSvg(svgLawn, { weather: false }).includes('<rect width="100%"'));
 ok('plain is deterministic',
@@ -1007,8 +1051,9 @@ ok('splitOutputs takes a shell\'s literal backslash-n',
 ok('splitOutputs drops empties', splitOutputs('').length === 0 && splitOutputs(null).length === 0);
 
 const opt = (line) => parseOutput(line).opts;
-ok('parseOutput splits the path off', parseOutput('dist/lawn.svg?theme=dark').path === 'dist/lawn.svg'
-  && parseOutput('dist/lawn.svg').path === 'dist/lawn.svg');
+ok('parseOutput splits the path off',
+  parseOutput('dist/lawn.svg?theme=dark').path === 'dist/lawn.svg'
+    && parseOutput('dist/lawn.svg').path === 'dist/lawn.svg');
 ok('a bare path asks for nothing',
   Object.keys(opt('dist/lawn.svg')).length === 0 && parseOutput('dist/lawn.svg').year === null);
 ok('theme', opt('a?theme=dark').theme === 'dark' && opt('a?theme=light').theme === 'light');
@@ -1024,7 +1069,9 @@ ok('caption text, and 0 or empty for none',
 ok('mowed as a fraction or as-is',
   opt('a?mowed=0.25').mowed === 0.25 && opt('a?mowed=as-is').mowed === 'as-is'
     && opt('a?mowed=1').mowed === 1);
-ok('year', parseOutput('a?year=2025').year === 2025 && parseOutput('a?year=2025').opts.year === undefined);
+ok('year',
+  parseOutput('a?year=2025').year === 2025
+    && parseOutput('a?year=2025').opts.year === undefined);
 ok('several options at once', (() => {
   const o = opt('dist/lawn-dark.svg?theme=dark&animate=1&weather=0&bg=0&caption=0');
   return o.theme === 'dark' && o.animate === true && o.weather === false

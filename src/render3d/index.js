@@ -155,7 +155,9 @@ export class Renderer3D {
     grad.minFilter = grad.magFilter = THREE.NearestFilter;
     grad.needsUpdate = true;
     this.grad = grad;
-    this.inkMat = this.wobbly(new THREE.MeshBasicMaterial({ color: 0x2c2c2a, side: THREE.BackSide }));
+    this.inkMat = this.wobbly(
+      new THREE.MeshBasicMaterial({ color: 0x2c2c2a, side: THREE.BackSide }),
+    );
 
     this.dummy = new THREE.Object3D();
     this.tmpColor = new THREE.Color();
@@ -341,7 +343,9 @@ export class Renderer3D {
    * one, and the fog leaves them as pale shapes under the sky.
    */
   buildHills(parent, cols) {
-    this.hillMat = new THREE.MeshToonMaterial({ color: 0xb5c99a, gradientMap: this.grad, fog: true });
+    this.hillMat = new THREE.MeshToonMaterial({
+      color: 0xb5c99a, gradientMap: this.grad, fog: true,
+    });
     const geo = new THREE.SphereGeometry(1, 12, 8);
     const rx = cols / 2 + 45;
     const rz = 40;
@@ -414,7 +418,8 @@ export class Renderer3D {
     g.add(apron);
     this.buildHills(g, cols);
 
-    const base = this.inked(new THREE.BoxGeometry(cols + 1.6, 0.7, ROWS + 1.5), this.toon(DIRT), 1.015);
+    const slab = new THREE.BoxGeometry(cols + 1.6, 0.7, ROWS + 1.5);
+    const base = this.inked(slab, this.toon(DIRT), 1.015);
     base.position.y = -0.35;
     g.add(base);
 
@@ -485,8 +490,11 @@ export class Renderer3D {
         c.clearRect(0, 0, 256, 256);
         c.fillStyle = CREAM; c.fillRect(8, 72, 240, 112);
         c.lineWidth = 8; c.strokeStyle = INK; c.lineJoin = 'round';
-        c.beginPath(); c.moveTo(14, 76); c.lineTo(244, 74); c.lineTo(242, 182); c.lineTo(12, 180); c.closePath(); c.stroke();
-        c.fillStyle = INK; c.font = `84px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.beginPath();
+        c.moveTo(14, 76); c.lineTo(244, 74); c.lineTo(242, 182); c.lineTo(12, 180);
+        c.closePath(); c.stroke();
+        c.fillStyle = INK; c.font = `84px ${FONT}`;
+        c.textAlign = 'center'; c.textBaseline = 'middle';
         c.fillText(MONTH_NAMES[ms.month].slice(0, 3), 128, 130);
       });
       const pl = new THREE.Mesh(
@@ -507,7 +515,9 @@ export class Renderer3D {
   /** One instanced box per day. Gaps show the dirt, so the grid reads. */
   buildTiles() {
     const geo = new THREE.BoxGeometry(0.86, 0.14, 0.86);
-    const mat = this.wobbly(new THREE.MeshToonMaterial({ gradientMap: this.grad }), { boil: 0.008 });
+    const mat = this.wobbly(
+      new THREE.MeshToonMaterial({ gradientMap: this.grad }), { boil: 0.008 },
+    );
     this.tiles = new THREE.InstancedMesh(geo, mat, SLOTS);
     this.tiles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.tiles.count = 0;
@@ -765,7 +775,9 @@ export class Renderer3D {
     this.clipGeo = new THREE.BoxGeometry(0.11, 0.11, 0.11);
     this.clipMats = new Map();
     this.puffGeo = new THREE.SphereGeometry(0.07, 6, 5);
-    this.puffMat = new THREE.MeshBasicMaterial({ color: 0x8c8a84, transparent: true, opacity: 0.4 });
+    this.puffMat = new THREE.MeshBasicMaterial({
+      color: 0x8c8a84, transparent: true, opacity: 0.4,
+    });
     this.puffAt = 0;
   }
 
@@ -803,7 +815,10 @@ export class Renderer3D {
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
     c.addEventListener('pointerleave', end);
-    c.addEventListener('wheel', (e) => { e.preventDefault(); this.zoom(e.deltaY * 0.004); }, { passive: false });
+    c.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      this.zoom(e.deltaY * 0.004);
+    }, { passive: false });
     c.addEventListener('dblclick', () => this.resetOrbit());
   }
 
@@ -836,8 +851,10 @@ export class Renderer3D {
     const was = this.overFit;
     this.overFit = clamp(hi, 12, 110);
     // keep whatever the visitor zoomed to, in proportion; otherwise sit on the fit
-    if (this.overZoomed && was) this.over.dist = clamp(this.over.dist * (this.overFit / was), this.overFit * 0.5, this.overFit * 2);
-    else this.over.dist = this.overFit;
+    if (this.overZoomed && was) {
+      this.over.dist = clamp(this.over.dist * (this.overFit / was),
+        this.overFit * 0.5, this.overFit * 2);
+    } else this.over.dist = this.overFit;
   }
 
   zoom(d) {
@@ -1050,7 +1067,10 @@ export class Renderer3D {
 
   clipMat(hex) {
     let m = this.clipMats.get(hex);
-    if (!m) { m = new THREE.MeshBasicMaterial({ color: new THREE.Color(hex) }); this.clipMats.set(hex, m); }
+    if (!m) {
+      m = new THREE.MeshBasicMaterial({ color: new THREE.Color(hex) });
+      this.clipMats.set(hex, m);
+    }
     return m;
   }
 
@@ -1225,7 +1245,9 @@ export class Renderer3D {
       for (let s = 0; s < pos.length / 3; s++) {
         pos[s * 3 + 1] -= 0.024;
         pos[s * 3] += Math.sin(this.time * 1.4 + s) * 0.006;
-        if (pos[s * 3 + 1] < -0.6 || Math.abs(pos[s * 3] - tx) > 16 || Math.abs(pos[s * 3 + 2] - tz) > 15) {
+        const gone = pos[s * 3 + 1] < -0.6
+          || Math.abs(pos[s * 3] - tx) > 16 || Math.abs(pos[s * 3 + 2] - tz) > 15;
+        if (gone) {
           pos[s * 3] = tx + (Math.random() - 0.5) * 28;
           pos[s * 3 + 1] = 6 + Math.random() * 5;
           pos[s * 3 + 2] = tz + (Math.random() - 0.5) * 24;
@@ -1279,7 +1301,9 @@ export class Renderer3D {
       for (let s = 0; s < fp.length / 3; s++) {
         fp[s * 3 + 1] += 0.012;
         fp[s * 3] += Math.sin(this.time * 0.9 + s) * 0.008;
-        if (fp[s * 3 + 1] > 7 || Math.abs(fp[s * 3] - tx) > 16 || Math.abs(fp[s * 3 + 2] - tz) > 15) {
+        const gone = fp[s * 3 + 1] > 7
+          || Math.abs(fp[s * 3] - tx) > 16 || Math.abs(fp[s * 3 + 2] - tz) > 15;
+        if (gone) {
           fp[s * 3] = tx + (Math.random() - 0.5) * 28;
           fp[s * 3 + 1] = 0.2 + Math.random() * 1.2;
           fp[s * 3 + 2] = tz + (Math.random() - 0.5) * 24;

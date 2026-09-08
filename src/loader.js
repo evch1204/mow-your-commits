@@ -81,7 +81,8 @@ function possessive(name) {
 function ago(ms) {
   const h = ms / 3600e3;
   if (h < 1) return 'a few minutes ago';
-  if (h < 36) return Math.max(1, Math.round(h)) + (Math.round(h) === 1 ? ' hour ago' : ' hours ago');
+  const hh = Math.round(h);
+  if (h < 36) return Math.max(1, hh) + (hh === 1 ? ' hour ago' : ' hours ago');
   const d = Math.round(h / 24);
   return d + (d === 1 ? ' day ago' : ' days ago');
 }

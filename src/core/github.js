@@ -358,9 +358,14 @@ async function graphql(query, login, token, doFetch, signal) {
   if (json && Array.isArray(json.errors) && json.errors.length) {
     const types = json.errors.map((e) => e && e.type);
     if (types.includes('NOT_FOUND')) throw new GithubError('notfound', 'no such GitHub user');
-    if (types.includes('RATE_LIMITED')) throw new GithubError('ratelimited', 'GitHub says slow down');
-    if (types.includes('FORBIDDEN')) throw new GithubError('token', 'that token is not allowed to read this');
-    throw new GithubError('malformed', (json.errors[0] && json.errors[0].message) || 'GraphQL error');
+    if (types.includes('RATE_LIMITED')) {
+      throw new GithubError('ratelimited', 'GitHub says slow down');
+    }
+    if (types.includes('FORBIDDEN')) {
+      throw new GithubError('token', 'that token is not allowed to read this');
+    }
+    throw new GithubError('malformed',
+      (json.errors[0] && json.errors[0].message) || 'GraphQL error');
   }
   return json;
 }
