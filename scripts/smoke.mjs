@@ -5,6 +5,13 @@ import {
   describeCell, formatTime, gridForYear, layoutYear, placeMower,
 } from '../src/core/lawn.js';
 import { daysForYear, yearsIn } from '../src/core/contrib.js';
+import {
+  parseUserInput, normaliseApi, clampLevel, GithubError,
+} from '../src/core/github.js';
+import { readFileSync } from 'node:fs';
+
+const fixture = (name) =>
+  JSON.parse(readFileSync(new URL('./fixtures/' + name + '.json', import.meta.url), 'utf8'));
 
 let failures = 0;
 function ok(name, cond, extra = '') {
@@ -14,6 +21,14 @@ function ok(name, cond, extra = '') {
     failures++;
     console.log('  FAIL ' + name + (extra ? '  ' + extra : ''));
   }
+}
+
+/** Assert that fn() throws a GithubError of a given kind. */
+function throwsKind(name, kind, fn) {
+  let got = null;
+  try { fn(); } catch (e) { got = e; }
+  ok(name, got instanceof GithubError && got.kind === kind,
+    got ? got.name + '/' + got.kind : 'did not throw');
 }
 
 const idle = { up: false, down: false, left: false, right: false };
@@ -195,6 +210,61 @@ const fromReal = createLawn(laid, { year: 2025 });
 ok('a lawn from real days works',
   fromReal.cols === 53 && fromReal.totalContributions === 38, `got ${fromReal.totalContributions}`);
 ok('layoutYear and daysForYear agree', layoutYear(parsed, 2025).length === laid.length);
+
+// --- github.js: input parsing ---------------------------------------------
+
+for (const [raw, want] of [
+  ['torvalds', 'torvalds'],
+  [' @Torvalds ', 'Torvalds'],
+  ['https://github.com/torvalds/', 'torvalds'],
+  ['github.com/torvalds?tab=repositories', 'torvalds'],
+  ['http://www.github.com/torvalds#x', 'torvalds'],
+  ['', null],
+  ['-bad', null],
+  ['a--b', null],
+  ['has space', null],
+  ['x'.repeat(40), null],
+  ['https://gitlab.com/torvalds', null],
+]) {
+  ok('parseUserInput ' + JSON.stringify(raw) + ' -> ' + JSON.stringify(want),
+    parseUserInput(raw) === want, 'got ' + JSON.stringify(parseUserInput(raw)));
+}
+
+ok('clampLevel keeps empty days empty', clampLevel(3, 0) === 0 && clampLevel(0, 0) === 0);
+ok('clampLevel makes a busy day mowable', clampLevel(0, 6) === 1 && clampLevel(null, 6) === 1);
+ok('clampLevel clamps to 1..4', clampLevel(9, 2) === 4 && clampLevel(-3, 2) === 1);
+
+// --- github.js: normaliseApi ----------------------------------------------
+// jogruber-torvalds.json is a real y=all body trimmed to 14 days of 2026
+// (straddling TODAY) and 21 of 2025, with two deliberate edits: the 2024 total
+// is zeroed to stand in for an empty year, and 2025-06-01 has level 0 with a
+// positive count so clampLevel is exercised on real-looking data.
+const TODAY = '2026-09-08';
+const gh = normaliseApi(fixture('jogruber-torvalds'), TODAY);
+
+ok('normaliseApi sorts days ascending across years',
+  gh.days.every((d, i) => i === 0 || gh.days[i - 1].date <= d.date));
+ok('normaliseApi reads the year list from total, newest first',
+  gh.years.join(',') === '2026,2025,2024', gh.years.join(','));
+ok('normaliseApi keeps a zero year', gh.totals[2024] === 0);
+ok('normaliseApi drops days after today', !gh.days.some((d) => d.date > TODAY));
+ok('the fixture really had future days',
+  fixture('jogruber-torvalds').contributions.some((d) => d.date > TODAY));
+ok('every level agrees with its count',
+  gh.days.every((d) => d.level === clampLevel(d.level, d.count)));
+ok('a busy day with level 0 is pulled up to 1',
+  gh.days.find((d) => d.date === '2025-06-01').level === 1);
+ok('level 0 iff count 0', gh.days.every((d) => (d.level === 0) === (d.count === 0)));
+
+throwsKind('normaliseApi({}) is malformed', 'malformed', () => normaliseApi({}));
+throwsKind('normaliseApi([]) is malformed', 'malformed', () => normaliseApi([]));
+throwsKind('normaliseApi(bad contributions) is malformed', 'malformed',
+  () => normaliseApi({ total: {}, contributions: 'x' }));
+throwsKind('normaliseApi(null) is malformed', 'malformed', () => normaliseApi(null));
+
+const ghost = normaliseApi(fixture('jogruber-ghost'), TODAY);
+ok('a user with no contributions has no years',
+  ghost.years.length === 0 && ghost.days.length === 0);
 
 console.log(failures ? `\n${failures} FAILED` : '\nall good');
 process.exit(failures ? 1 : 0);
