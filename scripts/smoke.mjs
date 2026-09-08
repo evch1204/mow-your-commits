@@ -776,6 +776,26 @@ ok('a junk ?user= never reaches a share link',
   shareUrl('', '?user=%22%3E%3Cscript%3E'));
 ok('the plain site is the fallback', shareUrl('', '') === SITE);
 
+// --- the end card on a board that scrolls ---------------------------------
+// #endcard is absolutely positioned inside #stage, and on a phone #stage is
+// the sideways-scrolling box the board lives in. You finish the year at the
+// far right, so the card has to be able to scroll itself back into view and
+// to scroll internally on a board barely 170px tall.
+
+const indexHtml = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const mainJs = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+const rule = (sel) => (new RegExp(sel.replace(/[.#]/g, '\\$&') + '\\s*\\{([^}]*)\\}')
+  .exec(indexHtml) || [, ''])[1];
+
+ok('the end card overlay scrolls rather than clipping its buttons',
+  /overflow:\s*auto/.test(rule('#endcard')), rule('#endcard').trim().slice(0, 80));
+ok('the end card is centred by auto margins, not by align-items',
+  /margin:\s*auto/.test(rule('.card')) && !/align-items/.test(rule('#endcard')));
+ok('finishing parks the scrolling board back at the card',
+  /stage\.scrollLeft = 0;/.test(mainJs));
+ok('the mower stops dragging the board while the card is up',
+  /active !== 'flat' \|\| !endcard\.hidden/.test(mainJs));
+
 // --- the workflow we hand people ------------------------------------------
 
 /**

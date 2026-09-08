@@ -400,6 +400,11 @@ function updateHud(dt) {
     $('endline').textContent = `${nf.format(lawn.totalContributions)} contributions `
       + `${periodLabel(lawn)} · mowed in ${formatTime(lawn.time)}`;
     $('endnote').textContent = `${lawn.cols} weeks · ${lawn.rows} rows · 1 riding mower`;
+    // The card is absolutely positioned inside #stage, which on a phone is the
+    // sideways-scrolling box the board lives in: it is pinned to the board's
+    // left edge and scrolls away with it. You finish the year at the far right,
+    // so without this the whole payoff lands ~300px off screen.
+    stage.scrollLeft = 0;
     endcard.hidden = false;
     confetti();
   }
@@ -418,9 +423,13 @@ function confetti() {
 
 window.addEventListener('resize', () => { deep.resize(); fitYears(); });
 
-/** On narrow screens the flat lawn scrolls sideways; keep the mower in frame. */
+/**
+ * On narrow screens the flat lawn scrolls sideways; keep the mower in frame.
+ * While the end card is up the board stays parked at the left, or the card
+ * (which scrolls with the board) would be dragged straight back off screen.
+ */
 function followMower() {
-  if (active !== 'flat') return;
+  if (active !== 'flat' || !endcard.hidden) return;
   const over = stage.scrollWidth - stage.clientWidth;
   if (over <= 0) return;
   const want = (lawn.mower.x / lawn.cols) * stage.scrollWidth - stage.clientWidth / 2;

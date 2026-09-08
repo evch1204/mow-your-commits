@@ -171,11 +171,17 @@
 
     /* end card */
     #endcard {
-      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-      background: rgba(251, 249, 242, .6); backdrop-filter: blur(2px); padding: 16px;
+      position: absolute; inset: 0; display: flex; justify-content: center;
+      background: rgba(251, 249, 242, .6); backdrop-filter: blur(2px); padding: 0 16px;
+      /* on a phone the board is only ~170px tall, which is shorter than the
+         card: let the overlay scroll instead of clipping the buttons away */
+      overflow: auto;
     }
     #endcard[hidden] { display: none; }
     .card {
+      /* auto margins centre the card while it fits and park it at the top once
+         it does not, so the heading never ends up above the scrollable area */
+      margin: auto;
       background: var(--cream); border: 3px solid var(--ink); border-radius: 18px;
       padding: 22px 32px 26px; text-align: center; transform: rotate(-1deg);
       box-shadow: 5px 6px 0 rgba(44, 44, 42, .18);
