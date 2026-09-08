@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import {
-  ROWS, MAX_COLS, MONTH_NAMES, SEASONS, seasonIndexOfCol, seasonIndexAt,
+  ROWS, MAX_COLS, MONTH_NAMES, seasonIndexOfCol, seasonIndexAt,
 } from '../core/lawn.js';
 import {
-  INK, CREAM, DIRT, AUTUMN_BLADE, tileColor, stripe, bladeColor, clipColor,
+  INK, CREAM, DIRT, AUTUMN_BLADE,
+  SKY_TOP, SKY_HORIZON, MEADOW_BY_SEASON, SUN_LIGHT,
+  tileColor, stripe, bladeColor, clipColor,
 } from '../core/palette.js';
 
 const FONT = "'Patrick Hand', cursive";
@@ -16,8 +18,7 @@ const MOWED_SCALE = 0.18;
 
 // Hemisphere light tint per season: cool in winter, warm in summer.
 const HEMI = ['#DCE9F4', '#EEF8E6', '#FFF6DE', '#FBEBD6'];
-const DIR_INTENSITY = [0.85, 1.1, 1.3, 1.0];
-const MEADOW = '#C9DCAE';
+const DIR_INTENSITY = [0.75, 1.05, 1.35, 1.0];
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const ease = (t) => t * t * (3 - 2 * t);
@@ -95,9 +96,9 @@ export class Renderer3D {
     // camera: chase <-> overview, each with its own look-around offset
     this.camMode = 0;
     this.camBlend = 0;
-    this.chase = { yaw: 0, pitch: 0, dist: 10.4 };
-    this.over = { yaw: 0, pitch: 0, dist: 33 };
-    this.CHASE_PITCH = 0.55;
+    this.chase = { yaw: 0, pitch: 0, dist: 9.6 };
+    this.over = { yaw: 0, pitch: 0, dist: 27 };
+    this.CHASE_PITCH = 0.5;
     this.OVER_PITCH = 0.42;
     this.gasHeld = 0;
     this.snapped = false;
@@ -110,7 +111,9 @@ export class Renderer3D {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(SEASONS[2].sky);
+    this.scene.background = new THREE.Color(SKY_HORIZON[2]);
+    this.trees = [];
+    this.hills = [];
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 600);
     this.lookAt = new THREE.Vector3(0, 0.5, 0);
     this.resize();
@@ -135,6 +138,7 @@ export class Renderer3D {
     this.tmpColor = new THREE.Color();
     this.tmpColorB = new THREE.Color();
 
+    this.buildSky();
     this.buildTiles();
     this.buildGrass();
     this.buildWeather();
@@ -189,12 +193,121 @@ export class Renderer3D {
     return t;
   }
 
-  sprite(tex, x, y, z, s, parent) {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+  sprite(tex, x, y, z, s, parent, opts) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, transparent: true, ...(opts || {}),
+    }));
     sp.position.set(x, y, z);
     sp.scale.set(s, s, 1);
     (parent || this.scene).add(sp);
     return sp;
+  }
+
+  // --- sky, hills, trees -------------------------------------------------
+
+  /**
+   * A gradient dome instead of a flat clear colour, plus distance fog in the
+   * same horizon colour, so the meadow dissolves into the sky rather than
+   * ending on a hard line.
+   */
+  buildSky() {
+    this.skyMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide, depthWrite: false, fog: false,
+      uniforms: {
+        uTop: { value: new THREE.Color(SKY_TOP[2]) },
+        uHorizon: { value: new THREE.Color(SKY_HORIZON[2]) },
+      },
+      vertexShader: `
+        varying float vY;
+        void main() {
+          vY = normalize(position).y;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        uniform vec3 uTop;
+        uniform vec3 uHorizon;
+        varying float vY;
+        void main() {
+          gl_FragColor = vec4(mix(uHorizon, uTop, smoothstep(-0.02, 0.45, vY)), 1.0);
+          #include <colorspace_fragment>
+        }`,
+    });
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(320, 24, 12), this.skyMat);
+    this.sky.frustumCulled = false;
+    this.scene.add(this.sky);
+    this.scene.fog = new THREE.Fog(new THREE.Color(SKY_HORIZON[2]), 26, 110);
+  }
+  /** The four faces of a doodle tree: bare, in leaf, in autumn, under snow. */
+  treeTextures() {
+    if (this.treeTex) return this.treeTex;
+    const branches = (c) => {
+      c.lineWidth = 6; c.strokeStyle = INK; c.lineCap = 'round';
+      c.beginPath();
+      c.moveTo(64, 124); c.lineTo(64, 60);
+      c.moveTo(64, 86); c.lineTo(38, 54);
+      c.moveTo(64, 74); c.lineTo(92, 40);
+      c.moveTo(64, 60); c.lineTo(52, 24);
+      c.stroke();
+    };
+    const canopy = (fill) => (c) => {
+      c.clearRect(0, 0, 128, 128);
+      branches(c);
+      c.fillStyle = fill; c.strokeStyle = INK; c.lineWidth = 6; c.lineJoin = 'round';
+      c.beginPath();
+      c.arc(44, 52, 22, 0, 7);
+      c.arc(70, 34, 26, 0, 7);
+      c.arc(92, 54, 20, 0, 7);
+      c.fill(); c.stroke();
+    };
+    this.treeTex = {
+      bare: this.canvasTexture(128, 128, (c) => { c.clearRect(0, 0, 128, 128); branches(c); }),
+      leafy: this.canvasTexture(128, 128, canopy('#5C8F3A')),
+      autumn: this.canvasTexture(128, 128, canopy('#EF9F27')),
+      snow: this.canvasTexture(128, 128, (c) => {
+        c.clearRect(0, 0, 128, 128);
+        c.lineWidth = 5; c.lineCap = 'round';
+        c.strokeStyle = 'rgba(255,255,255,0.85)';
+        c.beginPath();
+        c.moveTo(64, 84); c.lineTo(40, 54);
+        c.moveTo(64, 72); c.lineTo(90, 39);
+        c.moveTo(64, 58); c.lineTo(53, 24);
+        c.stroke();
+      }),
+    };
+    return this.treeTex;
+  }
+
+  /** One tree is four stacked sprites; the season decides which one you see. */
+  addTree(x, y, z, s, parent) {
+    const t = this.treeTextures();
+    const mk = (tex) => {
+      const sp = this.sprite(tex, x, y, z, s, parent);
+      sp.material.opacity = 0;
+      return sp;
+    };
+    const tree = { bare: mk(t.bare), leafy: mk(t.leafy), autumn: mk(t.autumn), snow: mk(t.snow) };
+    this.trees.push(tree);
+    return tree;
+  }
+
+  /**
+   * Nine soft hills on the skyline. They ride an ellipse that clears both ends
+   * of the board and sits behind the fence, so neither camera ever drives into
+   * one, and the fog leaves them as pale shapes under the sky.
+   */
+  buildHills(parent, cols) {
+    this.hillMat = new THREE.MeshToonMaterial({ color: 0xb5c99a, gradientMap: this.grad, fog: true });
+    const geo = new THREE.SphereGeometry(1, 12, 8);
+    const rx = cols / 2 + 45;
+    const rz = 40;
+    for (let i = 0; i < 9; i++) {
+      const a = Math.PI + 0.15 + (i / 8) * (Math.PI - 0.3);
+      const h = new THREE.Mesh(geo, this.hillMat);
+      h.position.set(Math.cos(a) * rx, -0.95, Math.sin(a) * rz);
+      h.scale.set(14 + ((i * 7) % 11), 3 + (i % 3), 8 + ((i * 5) % 5));
+      parent.add(h);
+      this.hills.push(h);
+    }
   }
 
   // --- board: dirt slab, apron, fence, month signs -----------------------
@@ -212,12 +325,37 @@ export class Renderer3D {
 
     // Meadow to the horizon, well below the slab. Both cameras are aimed
     // shallow enough (under the 25 degree half-FOV) that the real horizon line
-    // lands inside the frame, so the sky, sun and clouds stay above it.
-    this.apronMat = new THREE.MeshToonMaterial({ color: MEADOW, gradientMap: this.grad });
+    // lands inside the frame; fog and hills do the rest of the work.
+    // A sparse doodle-grass tile keeps the near meadow from reading as one
+    // flat colour; the material colour still carries the season.
+    if (!this.meadowTex) {
+      this.meadowTex = this.canvasTexture(128, 128, (c) => {
+        c.fillStyle = '#FFFFFF'; c.fillRect(0, 0, 128, 128);
+        c.strokeStyle = 'rgba(70,88,54,0.16)'; c.lineCap = 'round';
+        let s = 12345;
+        const rnd = () => { s = (s * 48271) % 2147483647; return (s - 1) / 2147483646; };
+        for (let i = 0; i < 34; i++) {
+          const x = rnd() * 128, y = 14 + rnd() * 110, h = 6 + rnd() * 9;
+          c.lineWidth = 1.6 + rnd();
+          c.beginPath();
+          c.moveTo(x, y);
+          c.quadraticCurveTo(x + (rnd() - 0.5) * 5, y - h * 0.6, x + (rnd() - 0.5) * 9, y - h);
+          c.stroke();
+        }
+      });
+      this.meadowTex.wrapS = this.meadowTex.wrapT = THREE.RepeatWrapping;
+      this.meadowTex.repeat.set(100, 100);
+    }
+    this.apronMat = new THREE.MeshToonMaterial({
+      color: new THREE.Color(MEADOW_BY_SEASON[2]), gradientMap: this.grad,
+      map: this.meadowTex,
+    });
     const apron = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), this.apronMat);
     apron.rotation.x = -Math.PI / 2;
     apron.position.set(0, -0.95, 0);
     g.add(apron);
+    this.hills.length = 0;
+    this.buildHills(g, cols);
 
     const base = this.inked(new THREE.BoxGeometry(cols + 1.6, 0.7, ROWS + 1.5), this.toon(DIRT), 1.015);
     base.position.y = -0.35;
@@ -237,19 +375,18 @@ export class Renderer3D {
       g.add(rail);
     }
 
-    // a few bare doodle trees along the fence line, whatever the season
-    const treeTex = this.canvasTexture(128, 128, (c) => {
-      c.lineWidth = 6; c.strokeStyle = INK; c.lineCap = 'round';
-      c.beginPath();
-      c.moveTo(64, 124); c.lineTo(64, 60);
-      c.moveTo(64, 86); c.lineTo(38, 54);
-      c.moveTo(64, 74); c.lineTo(92, 40);
-      c.moveTo(64, 60); c.lineTo(52, 24);
-      c.stroke();
-    });
+    // doodle trees that follow the season: five on the fence line, eight more
+    // set back in the meadow so the skyline has some depth
+    this.trees.length = 0;
     for (let t = 0; t < 5; t++) {
       const x = (t + 0.5) / 5 * cols - cols / 2 + (t % 2 ? 2 : -2);
-      this.sprite(treeTex, x, 2.2, this.fenceZ - 3.4, 4.5, g);
+      this.addTree(x, 2.2, this.fenceZ - 3.4, 4.5, g);
+    }
+    for (let t = 0; t < 12; t++) {
+      const s = 4 + (t % 4);
+      const x = ((t + 0.5) / 12 * 2 - 1) * (cols + 20) + (t % 3 - 1) * 3.5;
+      const z = this.fenceZ - 6 - (t % 6) * 5.6;
+      this.addTree(x, -0.95 + s / 2, z, s, g);
     }
 
     this.buildSigns();
@@ -271,17 +408,17 @@ export class Renderer3D {
       const x = ms.col + 0.6 - cols / 2;
       if (x - lastX < 3.2) continue;
       lastX = x;
-      const top = n++ % 2 ? 2.15 : 1.85;   // alternate so a run does not read as a rail
+      const top = n++ % 2 ? 2.3 : 1.95;   // alternate so a run does not read as a rail
       const tex = this.canvasTexture(256, 256, (c) => {
         c.clearRect(0, 0, 256, 256);
         c.fillStyle = CREAM; c.fillRect(8, 72, 240, 112);
         c.lineWidth = 8; c.strokeStyle = INK; c.lineJoin = 'round';
         c.beginPath(); c.moveTo(14, 76); c.lineTo(244, 74); c.lineTo(242, 182); c.lineTo(12, 180); c.closePath(); c.stroke();
-        c.fillStyle = INK; c.font = `64px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillStyle = INK; c.font = `84px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
         c.fillText(MONTH_NAMES[ms.month].slice(0, 3), 128, 130);
       });
       const pl = new THREE.Mesh(
-        new THREE.PlaneGeometry(2.1, 2.1),
+        new THREE.PlaneGeometry(2.4, 2.4),
         new THREE.MeshBasicMaterial({ map: tex, transparent: true }),
       );
       pl.position.set(x, top, this.fenceZ - 0.06);
@@ -392,12 +529,16 @@ export class Renderer3D {
       c.fill(); c.stroke();
       c.fillStyle = '#fff'; c.fillRect(30, 72, 70, 22);
     });
-    // anchored to the camera target, high up behind the fence
-    this.sun = this.sprite(sunTex, 0, 7, -14, 5);
+    // anchored to the camera target, high up behind the fence. Sky props are
+    // never fogged, or they would sink into the haze they sit above.
+    this.sun = this.sprite(sunTex, 0, 7, -14, 5, null, { fog: false });
+    // a second, pale, low sun for the cold months
+    this.coldSun = this.sprite(sunTex, 0, 5, -14, 4, null, { fog: false });
+    this.coldSun.material.color.set('#F3EBD8');
     this.clouds = [
-      this.sprite(cloudTex, -7, 6.2, -13, 4.6),
-      this.sprite(cloudTex, 5, 7.4, -14, 3.8),
-      this.sprite(cloudTex, 12, 5.6, -12, 3.2),
+      this.sprite(cloudTex, -7, 6.2, -13, 4.6, null, { fog: false }),
+      this.sprite(cloudTex, 5, 7.4, -14, 3.8, null, { fog: false }),
+      this.sprite(cloudTex, 12, 5.6, -12, 3.2, null, { fog: false }),
     ];
   }
 
@@ -566,8 +707,8 @@ export class Renderer3D {
   resetOrbit() {
     this.chase.yaw = this.chase.pitch = 0;
     this.over.yaw = this.over.pitch = 0;
-    this.chase.dist = 10.4;
-    this.over.dist = 33;
+    this.chase.dist = 9.6;
+    this.over.dist = 27;
   }
 
   /** Debug hook for ?yaw=<degrees>. */
@@ -776,7 +917,9 @@ export class Renderer3D {
       g.strokeStyle = '#FBF9F2'; g.strokeText('+' + n, 128, 66);
       g.fillStyle = INK; g.fillText('+' + n, 128, 64);
     });
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, transparent: true, depthTest: false, fog: false,
+    }));
     const m = this.lawn.mower;
     const j = (this.popups.length % 3) - 1;
     sp.position.set(
@@ -813,22 +956,35 @@ export class Renderer3D {
     const wm = this.weatherMix;
     for (let i = 0; i < 4; i++) wm[i] += ((i === want ? 1 : 0) - wm[i]) * k;
 
-    // sky, ground and lights all follow the mix
-    const sky = this.tmpColor.setRGB(0, 0, 0);
-    const hemi = this.tmpColorB.setRGB(0, 0, 0);
+    // sky, ground, fog and lights all follow the mix
+    const top = this.cTop.setRGB(0, 0, 0);
+    const horizon = this.cHorizon.setRGB(0, 0, 0);
+    const hemi = this.cHemi.setRGB(0, 0, 0);
+    const meadow = this.cMeadow.setRGB(0, 0, 0);
+    const sunlight = this.cSun.setRGB(0, 0, 0);
     let intensity = 0;
+    const add = (dst, src, w) => { dst.r += src.r * w; dst.g += src.g * w; dst.b += src.b * w; };
     for (let i = 0; i < 4; i++) {
       if (wm[i] < 0.002) continue;
-      const sc = this.skyColors[i], hc = this.hemiColors[i], w = wm[i];
-      sky.r += sc.r * w; sky.g += sc.g * w; sky.b += sc.b * w;
-      hemi.r += hc.r * w; hemi.g += hc.g * w; hemi.b += hc.b * w;
+      const w = wm[i];
+      add(top, this.topColors[i], w);
+      add(horizon, this.horizonColors[i], w);
+      add(hemi, this.hemiColors[i], w);
+      add(meadow, this.meadowColors[i], w);
+      add(sunlight, this.sunColors[i], w);
       intensity += DIR_INTENSITY[i] * w;
     }
-    this.scene.background.copy(sky);
+    this.skyMat.uniforms.uTop.value.copy(top);
+    this.skyMat.uniforms.uHorizon.value.copy(horizon);
+    this.scene.background.copy(horizon);
+    this.scene.fog.color.copy(horizon);
     this.hemi.color.copy(hemi);
+    this.hemi.groundColor.copy(meadow);
     this.dir.intensity = intensity || 1;
-    // the apron reads as a horizon when it sits between the grass and the sky
-    this.apronMat.color.copy(this.meadow).lerp(sky, 0.3 + wm[0] * 0.4);
+    this.dir.color.copy(sunlight);
+    // the meadow keeps its own colour now; the fog is what makes it a horizon
+    this.apronMat.color.copy(meadow);
+    if (this.hillMat) this.hillMat.color.copy(meadow).multiplyScalar(0.9);
 
     // snow, always around the mower so it is weather and not scenery
     this.snowMat.opacity = wm[0];
@@ -863,14 +1019,32 @@ export class Renderer3D {
     }
 
     // sun and clouds hang high behind the fence, anchored to where you are
-    const sunny = clamp(wm[2] + wm[1] * 0.5, 0, 1);
+    const sunny = clamp(wm[2] + wm[1] * 0.5 + wm[3] * 0.25, 0, 1);
     this.sun.material.opacity = sunny;
     this.sun.visible = sunny > 0.02;
     this.sun.material.rotation += 0.004;
     // Sky props hang a little above the camera's own height, so they are always
-    // on the sky side of the horizon whichever camera you are on.
-    this.sun.position.set(tx + 11, camY + 1.4, this.fenceZ - 9);
-    this.sun.scale.setScalar(3.6 + sunny * 1.0);
+    // on the sky side of the horizon whichever camera you are on. In summer the
+    // sun climbs; in the cold months a pale one sits just over the hills.
+    this.sun.position.set(tx + 11, camY + 0.6 + 1.8 * wm[2], this.fenceZ - 9);
+    this.sun.scale.setScalar(4.4 + sunny * 1.4);
+    this.coldSun.material.opacity = 0.35 * wm[0];
+    this.coldSun.visible = wm[0] > 0.02;
+    this.coldSun.position.set(tx + 11, camY + 0.3, this.fenceZ - 9);
+    this.coldSun.scale.setScalar(4.0);
+    // the trees are wherever the year is: bare, in leaf, in autumn, snow-lined
+    const inLeaf = clamp(wm[1] + wm[2], 0, 1);
+    for (const t of this.trees) {
+      t.bare.material.opacity = wm[0];
+      t.bare.visible = wm[0] > 0.01;
+      t.leafy.material.opacity = inLeaf;
+      t.leafy.visible = inLeaf > 0.01;
+      t.autumn.material.opacity = wm[3];
+      t.autumn.visible = wm[3] > 0.01;
+      t.snow.material.opacity = wm[0] * 0.4;
+      t.snow.visible = wm[0] > 0.01;
+    }
+
     const cloudy = clamp(wm[1] + wm[3] + wm[0] * 0.6, 0, 1);
     this.clouds.forEach((cl, i) => {
       cl.material.opacity = cloudy * 0.95;
@@ -887,10 +1061,17 @@ export class Renderer3D {
     this.lastTs = ts;
     this.time += dt;
 
-    if (!this.skyColors) {
-      this.skyColors = SEASONS.map((s) => new THREE.Color(s.sky));
+    if (!this.topColors) {
+      this.topColors = SKY_TOP.map((h) => new THREE.Color(h));
+      this.horizonColors = SKY_HORIZON.map((h) => new THREE.Color(h));
       this.hemiColors = HEMI.map((h) => new THREE.Color(h));
-      this.meadow = new THREE.Color(MEADOW);
+      this.meadowColors = MEADOW_BY_SEASON.map((h) => new THREE.Color(h));
+      this.sunColors = SUN_LIGHT.map((h) => new THREE.Color(h));
+      this.cTop = new THREE.Color();
+      this.cHorizon = new THREE.Color();
+      this.cHemi = new THREE.Color();
+      this.cMeadow = new THREE.Color();
+      this.cSun = new THREE.Color();
     }
 
     if (ts - this.lastBoil > 110) { this.seedVal += 1.7; this.lastBoil = ts; }
@@ -1012,12 +1193,13 @@ export class Renderer3D {
 
     // look ahead of the mower when you are behind it; swing the aim onto the
     // mower itself as you orbit around, so it never slides out of frame
-    const ahead = 3.4 * Math.max(0, Math.cos(this.chase.yaw));
+    this.sky.position.copy(cam.position);
+    const ahead = 3.0 * Math.max(0, Math.cos(this.chase.yaw));
     const lx = this.wx(m.x) + Math.cos(m.angle) * ahead;
     const lz = this.wz(m.z) + Math.sin(m.angle) * ahead;
     this.lookAt.x += (lx + (0 - lx) * b - this.lookAt.x) * s;
-    this.lookAt.y += (1.95 + (5 - 1.95) * b - this.lookAt.y) * s;
-    this.lookAt.z += (lz + (0 - lz) * b - this.lookAt.z) * s;
+    this.lookAt.y += (1.95 + (6.5 - 1.95) * b - this.lookAt.y) * s;
+    this.lookAt.z += (lz + (0.4 - lz) * b - this.lookAt.z) * s;
     cam.lookAt(this.lookAt);
 
     this.updateWeather(dt, this.lookAt.x, this.lookAt.z, cam.position.y);
