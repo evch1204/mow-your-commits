@@ -704,6 +704,26 @@ const animRow = Math.floor(Math.round(0.5 * svgLawn.cols * ROWS) / svgLawn.cols)
 ok('one regrowing cover per grown cell of the mowed row',
   (animSvg.match(/<animate attributeName="opacity"/g) || []).length
     === svgLawn.cells.filter((c) => c.row === animRow && !c.void && c.level > 0).length);
+// SMIL drops a whole <animate> whose keyTimes are not strictly increasing, and
+// the last column's t is only 0.5/cols short of 1, so this is easy to get wrong.
+let smilOk = true;
+let smilWhy = '';
+for (const el of animSvg.matchAll(/<animate\s([^>]*)\/>/g)) {
+  const kt = /keyTimes="([^"]*)"/.exec(el[1]);
+  const vs = /values="([^"]*)"/.exec(el[1]);
+  if (!kt || !vs) { smilOk = false; smilWhy = 'no keyTimes/values'; break; }
+  const times = kt[1].split(';').map(Number);
+  if (times.length !== vs[1].split(';').length) { smilOk = false; smilWhy = 'count ' + kt[1]; break; }
+  if (times[0] !== 0 || times[times.length - 1] !== 1) { smilOk = false; smilWhy = 'ends ' + kt[1]; break; }
+  for (let i = 1; i < times.length; i++) {
+    if (!(times[i] > times[i - 1])) { smilOk = false; smilWhy = kt[1]; break; }
+  }
+  if (!smilOk) break;
+}
+ok('every keyTimes is 0..1, strictly increasing, and matches values', smilOk, smilWhy);
+ok('the last column still fades before the loop ends',
+  animSvg.includes(`keyTimes="0;${((svgLawn.cols - 0.5) / svgLawn.cols).toFixed(4)};`));
+
 ok('animate is deterministic', lawnToSvg(svgLawn, { animate: true }) === animSvg);
 ok('animate still loads nothing external',
   !/https?:\/\//.test(animSvg.replace(/xmlns="[^"]*"/, '')));

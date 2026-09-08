@@ -530,7 +530,11 @@ function coverGroup(lawn, theme, o, row, cols) {
     const dots = new Map();
     const grown = { col: c.col, row: c.row, level: c.level, void: false, mowedX: false };
     tuft(bag, dots, x, y, grown, season, theme, o, 1);
+    // keyTimes has to be strictly increasing and end at exactly 1, so the snap
+    // that follows t never reaches 1 itself: on the last column t is already
+    // 1 - 0.5/cols and a flat +0.01 would collide with the final key.
     const t = (c.col + 0.5) / cols;
+    const t2 = Math.min(t + 0.01, (1 + t) / 2);
     groups.push(`<g opacity="${c.col < at ? 0 : 1}">`
       + tileRect(c, x, y, season, theme, false)
       + `<g fill="none" stroke-linecap="round">`
@@ -540,7 +544,7 @@ function coverGroup(lawn, theme, o, row, cols) {
       })
       + `</g>${batched(dots, (col) => `fill="${col}"`)}`
       + `<animate attributeName="opacity" values="1;1;0;0"`
-      + ` keyTimes="0;${t.toFixed(4)};${Math.min(1, t + 0.01).toFixed(4)};1"`
+      + ` keyTimes="0;${t.toFixed(4)};${t2.toFixed(4)};1"`
       + ` dur="${LOOP}s" repeatCount="indefinite"/></g>`);
   }
   return `<g id="cover">${groups.join('')}</g>`;
