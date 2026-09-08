@@ -125,6 +125,7 @@ export class Renderer3D {
     this.CHASE_PITCH = 0.5;
     this.OVER_PITCH = OVER_PITCH;
     this.gasHeld = 0;
+    this.signScale = 1;
     this.snapped = false;
 
     // weather weights: winter, spring, summer, autumn
@@ -443,6 +444,7 @@ export class Renderer3D {
     const cols = this.lawn.cols;
     if (this.signs) for (const s of this.signs) this.board.remove(s);
     this.signs = [];
+    this.signPlanes = [];
     let lastX = -Infinity;
     let n = 0;
     for (const ms of this.lawn.monthStarts) {
@@ -464,10 +466,12 @@ export class Renderer3D {
         new THREE.MeshBasicMaterial({ map: tex, transparent: true }),
       );
       pl.position.set(x, top, this.fenceZ - 0.06);
+      pl.scale.setScalar(this.signScale || 1);
       const st = new THREE.Mesh(new THREE.BoxGeometry(0.1, top - 0.55, 0.1), this.wood);
       st.position.set(x, (top - 0.55) / 2 + 0.3, this.fenceZ - 0.12);
       this.board.add(pl, st);
       this.signs.push(pl, st);
+      this.signPlanes.push(pl);
     }
   }
 
@@ -1424,6 +1428,12 @@ export class Renderer3D {
     // the year is drawn at nearly the size of the near end and reads as a grid
     const fov = CHASE_FOV + (OVER_FOV - CHASE_FOV) * b;
     if (Math.abs(cam.fov - fov) > 0.02) { cam.fov = fov; cam.updateProjectionMatrix(); }
+    // and the month signs grow with it, so the year stays labelled from up there
+    const ss = 1 + 0.3 * b;
+    if (Math.abs(ss - this.signScale) > 0.004) {
+      this.signScale = ss;
+      for (const p of this.signPlanes) p.scale.setScalar(ss);
+    }
     cam.position.x += (tx - cam.position.x) * s;
     cam.position.y += (ty - cam.position.y) * s;
     cam.position.z += (tz - cam.position.z) * s;
