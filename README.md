@@ -1,121 +1,55 @@
-# mow-your-commits
+<h1 align="center">🌱 mow your commits</h1>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/lawn-dark.svg">
-  <img alt="a GitHub contribution graph drawn as a half-mowed doodle lawn" src="docs/lawn.svg">
-</picture>
+<p align="center">
+  Your GitHub contribution graph is a lawn. Mow it.
+</p>
 
-*(a made-up developer, rendered by `node scripts/render-svg.mjs --demo`. once the
-`mow the lawn` workflow has run here, the owner's real lawn lives on the `output`
-branch and this repo points at that instead.)*
+<p align="center">
+  <a href="https://evch1204.github.io/mow-your-commits/"><b>▶ play it with your own graph</b></a>
+  &nbsp;·&nbsp;
+  <a href="#put-it-in-your-readme">put it in your README</a>
+  &nbsp;·&nbsp;
+  <a href="#run-it-locally">run it locally</a>
+</p>
 
-🌱 Your GitHub contribution graph is a lawn. Mow it. A tiny browser game built with Three.js and canvas.
+<p align="center">
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-97C459.svg"></a>
+  <a href="https://github.com/evch1204/mow-your-commits/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/evch1204/mow-your-commits?style=flat&color=97C459"></a>
+  <img alt="zero backend" src="https://img.shields.io/badge/backend-none-D85A30.svg">
+</p>
 
-**Unmowed = overgrown doodle grass hiding the graph. Mowed = the clean GitHub tile
-underneath.** Every cell is both a GitHub day square and a patch of grass: level 4 is a
-hedge you can barely see the tile through, level 0 is bare dirt. Driving over a day cuts
-it back to its exact GitHub green and pops up `+12` for the contributions you just found.
-Mowing *is* the reveal.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/lawn-dark.svg">
+    <img alt="a GitHub contribution graph drawn as a half-mowed doodle lawn" src="docs/lawn.svg">
+  </picture>
+</p>
 
-Grass reads the *count*, not just the level: each day carries a `vigor` (where its count
-sits inside its own level's range), so a 40-contribution day grows taller, denser and
-darker than a 12 in the same green. The top 3% of your days are `heroic` and put up a
-dandelion until you mow them.
+Every day on your graph is a patch of grass. More commits, taller grass. Drive the mower
+over a day and the real GitHub tile pops out with the count. Mow all 52 weeks and you get
+a time to brag about.
 
-## try it with your own username
+Type any GitHub username on the site and it becomes that account's real graph. No login,
+no token, nothing to install.
 
-**<https://evch1204.github.io/mow-your-commits/>**
+<table>
+  <tr>
+    <td><img alt="riding the mower through spring" src="docs/shots/deep.png"></td>
+    <td><img alt="the whole year from above, in autumn" src="docs/shots/overview.png"></td>
+  </tr>
+  <tr>
+    <td><img alt="the flat view, mid-mow" src="docs/shots/flat.png"></td>
+    <td><img alt="January, snowing, −2 °C" src="docs/shots/winter.png"></td>
+  </tr>
+</table>
 
-Type your GitHub username in the box above the lawn (a login, an `@handle` or a
-profile link) and it becomes your real graph. `?user=torvalds` mows somebody else's;
-`?year=2025` picks a calendar year. Mow all 52 weeks and the end card gives you a
-time, a brag line and a picture to post.
+**Controls.** Click the lawn, then WASD or arrow keys. `C` for the overview shot, `R` to
+regrow, drag to look around in 3D. On a phone there is a pad.
 
-**Controls.** Click the lawn, then WASD or the arrow keys. In 3D, drag to look
-around, scroll or pinch to zoom, double-click to recentre; `C` swaps the chase cam
-for an overview of the whole year and `R` regrows. Toggle flat / 3D with the
-buttons. On a phone there is an on-screen pad, and the flat lawn scrolls sideways
-to follow the mower.
+## Put it in your README
 
-Two renderers share one model:
-
-- `src/core/` — the lawn itself. Cells, mower physics, mowing detection, seasons,
-  temperature by month, and the shared colour palette including `GRASS`/`grassFor`, the
-  blade grammar both renderers draw from. No DOM, no rendering.
-- `src/render2d/` — hand-drawn canvas version at the proportions of the real graph:
-  52x7 rounded tiles on a dirt bed whose colour follows the climate of each column, month
-  labels with a season doodle on top, Mon/Wed/Fri down the left, legend bottom right. The
-  whole year's weather is on screen at once: snow over the winter columns, blossom over
-  spring, rising dandelion fluff over summer, leaves over autumn.
-- `src/render3d/` — Three.js version with cel shading, ink outlines, a "boiling" wobble
-  shader and wind sway. Instanced tiles plus four tuft builds, one per level, scaled by
-  the day's count. A gradient sky dome, distance fog, hills, trees that go bare, green,
-  gold and snow-lined with the season, and a sun that climbs in summer and sits pale and
-  low in winter. A riding mower with a driver, and weather that follows you: drive into
-  winter and it starts snowing, into autumn and the leaves come down. Chase cam you can
-  drag to look around, or press `C` for the overview shot of the whole year.
-
-Type a GitHub username in the box above the lawn and it becomes that account's real
-graph. Pick a year from the list beside the lawn, just like on a GitHub profile: the
-years offered are exactly the years that profile's own year picker shows. The rolling
-"last year" is 52 weeks; a calendar year is GitHub's 53- or 54-column grid, with void
-cells before 1 Jan and after 31 Dec (and after today, in the current year) that are
-drawn as nothing and can't be mowed.
-
-## Run
-
-```
-npm install
-npm run dev
-```
-
-```
-npm run build          # dist/ uses relative paths, so it works on GitHub Pages
-node scripts/smoke.mjs # pure-node assertions over the sim + the data layer
-node scripts/smoke.mjs --live torvalds   # also hits the real contributions API
-
-# the README pictures, without a browser and without node_modules
-node scripts/render-svg.mjs --demo --outputs "docs/lawn.svg
-docs/lawn-dark.svg?theme=dark"
-```
-
-### Screenshots
-
-```
-npm run build
-npx vite preview --port 4173 --strictPort
-chrome --headless=new --disable-gpu --use-gl=angle --use-angle=swiftshader \
-  --enable-unsafe-swiftshader --hide-scrollbars --window-size=1000,900 \
-  --virtual-time-budget=6000 --screenshot=out.png \
-  "http://localhost:4173/?view=flat&autodrive=1"
-```
-
-Headless Chrome clamps its window to 500px wide, so `--window-size=390,844` quietly
-lies about phone width. For a real 390px shot, point it at a local file holding
-`<iframe width="390" height="844" src="http://localhost:4173/?view=flat">` and use
-`--window-size=500,844`.
-
-### URL flags
-
-| flag | what it does |
-| --- | --- |
-| `?view=flat` / `?view=deep` | which renderer to start in |
-| `?year=2025` | pick a calendar year instead of the rolling 52 weeks |
-| `?user=torvalds` | load a real account (a login, an @handle or a profile link) |
-| `?seed=123` | a different fake year (deterministic), demo lawn only |
-| `?autodrive=1` | debug: drives a demo lap down the year and back, for headless screenshots |
-| `?cam=overview` | debug: start the 3D view on the overview camera |
-| `?start=30` | debug: park the mower in a column (drive into a season) |
-| `?yaw=45`, `?dist=6` | debug: preset look-around angle and camera distance |
-| `?finish=1` | debug: mow everything before the first paint (end card) |
-| `?og=1` | debug: hide the controls, the year list and the landing strips, for the 1200x630 social card |
-
-Only `?user`, `?year` and `?seed` travel in a share link; the debug flags stay at home.
-
-## put it in your profile
-
-A GitHub Action mows your graph every night and commits the picture to a branch.
-No tokens to create, no server, nothing to host.
+A GitHub Action mows your graph every night and commits the picture to your profile repo.
+No tokens to create, no server, nothing to host. Light and dark, like GitHub's own graph.
 
 1. Make a repo named after you (`you/you`) if you don't have one.
 2. Add `.github/workflows/lawn.yml`:
@@ -146,7 +80,8 @@ jobs:
         env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
 ```
 
-3. Run it once from the Actions tab, then paste this into your README:
+3. Run it once from the Actions tab, then paste this into your README (swap `USER` for
+   your login):
 
 ```html
 <picture>
@@ -155,106 +90,52 @@ jobs:
 </picture>
 ```
 
-The page has a **copy workflow** and a **copy markdown** button that fill in your
-username for you.
+The site's **copy workflow** and **copy markdown** buttons fill in your username for you.
 
-Each `outputs` line is a path plus options as a query string:
+Want it to move? Add `?animate=1` to an output line and the mower drives the half-mowed
+row on a loop, like the snake. Every option, one per output line:
 
 | option | values | what it does |
 | --- | --- | --- |
-| `theme` | `light` (default), `dark` | GitHub's own dark ramp on `#0D1117` |
+| `theme` | `light`, `dark` | GitHub's dark ramp on `#0D1117` |
+| `animate` | `1` | the mower mows the row on an 8 s loop |
 | `year` | `2025` | a calendar year instead of the rolling 52 weeks |
-| `mowed` | `0`..`1` (default `0.5`), `as-is` | how much is already cut |
+| `mowed` | `0`..`1`, `as-is` | how much is already cut (default `0.5`) |
 | `mower` | `0` | park the mower off the picture |
-| `animate` | `1` | SMIL: the mower drives the half-mowed row on an 8 s loop |
-| `caption` | text, or `0` for none | replaces "1,234 contributions in the last year" |
+| `caption` | text, or `0` | replace "1,234 contributions in the last year" |
 
-The data is GitHub's own `contributionsCollection` GraphQL calendar, read with the
-default action token; without a token it falls back to
-`github-contributions-api.jogruber.de`. Both go through `src/core/github.js` and
-`src/core/contrib.js`, the same parser and the same grid the site uses, and
-`src/export/svg.js` draws through `src/core/palette.js` - so the picture in your
-README is the board on the page, not a lookalike. Full details in
-[`action/README.md`](action/README.md).
+More in [`action/README.md`](action/README.md). Prefer a file? The site has
+**download svg** and **download png**, and the end card downloads the lawn exactly as you
+mowed it.
 
-## download
-
-The **put your lawn in your README** section on the page has **download svg** and
-**download png**, and the end card has **download png** for the lawn exactly as you
-mowed it. Both use the same `src/export/svg.js` the Action does, so the file you get
-is the picture you were looking at. Or render one yourself:
+## Run it locally
 
 ```
-node scripts/render-svg.mjs --user torvalds --outputs "out/lawn.svg"
-node scripts/render-svg.mjs --demo --outputs "out/a.svg\nout/b.svg?theme=dark&animate=1"
+npm install
+npm run dev
 ```
 
-`render-svg.mjs` imports only `src/core/*` and `src/export/*`, which have no
-dependencies, so it runs with `node_modules` deleted. That is what lets the Action
-skip `npm ci`; keep it that way.
+Open the URL Vite prints, type a username into the box above the lawn, press **mow it**.
+`?user=torvalds` in the address bar does the same. `?year=2025` picks a calendar year.
 
-The exported SVG embeds the Latin subset of **Patrick Hand** by Patrick Wagesreiter
-(SIL Open Font License 1.1) as a `data:` URI, because an `<img>` SVG in a README
-cannot load anything external.
+## How it works
 
-## Real data
+- **Your data, no login.** The site reads the public contribution graph through a
+  CORS-open mirror, so it works as a static page on GitHub Pages. Paste a fine-grained
+  token with no permissions under "or paste a token" and it talks to GitHub's GraphQL API
+  directly instead, private contributions included. The token stays in your browser and
+  never touches a URL.
+- **One sim, two renderers.** A pure, DOM-free model in `src/core` drives a hand-drawn
+  canvas and a cel-shaded Three.js scene. Grass height and density follow the actual
+  count, not just GitHub's four levels, and the best 3% of your days grow dandelions.
+- **The README picture is the board.** The Action renders through the same code as the
+  site with zero dependencies, so what lands in your profile is exactly what you mowed.
 
-Type `torvalds`, `@torvalds` or `https://github.com/torvalds/` into the box above the
-lawn (or open `?user=torvalds`) and the lawn becomes that account's real contribution
-graph: GitHub's own levels, GitHub's own year list, days after today left blank. No
-account, no token, no backend. A loaded account is remembered in the URL, so the link
-is shareable; `back to the demo` puts the fake lawn back.
+Developer notes, URL flags and the screenshot recipe: [`docs/DEV.md`](docs/DEV.md).
 
-The site calls **`https://github-contributions-api.jogruber.de/v4/<login>`**, the one
-CORS-open public mirror of the contribution graph (github.com itself sends no
-`Access-Control-Allow-Origin`). Two requests per cold load: `?y=all` for the whole
-history and the year list, `?y=last` for GitHub's rolling 53-week window. That API
-caches for an hour and limits *uncached* requests to 10 per 10 seconds per IP, so the
-site keeps its own `localStorage` cache: six accounts, fresh for an hour, usable for a
-week if the API is unreachable. Organisations have no contribution graph and come back
-as "not found".
+## Credits
 
-```js
-import { fetchContributions, parseUserInput } from './core/github.js';
-import { daysForYear, daysForRolling } from './core/contrib.js';
-
-const login = parseUserInput('https://github.com/torvalds/');   // -> 'torvalds'
-const data = await fetchContributions(login, { today: '2026-09-08' });
-// { days: [{date, count, level}], years: [2026, ..., 2011], totals, last }
-
-createLawn(daysForYear(data.days, 2025, today), { year: 2025 });  // one calendar year
-createLawn(daysForRolling(data.last), { year: null });            // the rolling window
-```
-
-`src/core/github.js` is pure: `fetch` and the storage are injectable, so it all runs
-under node, and every failure is a `GithubError` with a `kind` the page turns into a
-sentence (`invalid`, `notfound`, `ratelimited`, `network`, `malformed`, `token`).
-
-### The optional token
-
-Under **or paste a token** you can hand the page a GitHub token, and it queries
-`api.github.com/graphql` (`contributionsCollection`) directly instead: no shared rate
-limit, no third party, and your *own* account's private contributions are included. A
-fine-grained personal access token with **no permissions at all** is enough.
-
-The token is stored only in your browser (`localStorage`), sent only to
-`api.github.com`, and never put in a URL — `?token=` is stripped from the address bar
-on load. `forget` deletes it. If GitHub is unreachable the page falls back to the
-public mirror; if the token is rejected it says so and changes nothing else.
-
-### Without any of that
-
-`generateFakeData(seed)` makes a plausible developer year: weekday-heavy, a sparse
-January, a few multi-week streaks, one vacation gap and one heroic shipping week. That
-is the demo lawn, and it stays on screen (and playable) while a real one is loading and
-after any failure. `?seed=123` picks a different one.
-
-`parseContributions()` in `src/core/contrib.js` still reads GitHub's own
-`td[data-date][data-level]` table, for the browser-extension idea below.
-
-## Next
-
-- [ ] hand-drawn tuft and mower textures instead of procedural strokes
-- [ ] extension: content script that swaps `.js-calendar-graph` for the lawn
-- [ ] sound
-- [x] share image export (SVG/PNG on the page, and a GitHub Action for your README)
+Inspired by the [contribution snake](https://github.com/Platane/snk). Drawn in
+[Patrick Hand](https://fonts.google.com/specimen/Patrick+Hand) by Patrick Wagesreiter
+(SIL Open Font License 1.1), embedded in the exported SVG. Built with
+[three.js](https://threejs.org/). MIT.
