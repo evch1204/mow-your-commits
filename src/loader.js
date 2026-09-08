@@ -138,9 +138,11 @@ function show(login, data, fromUrl) {
 /**
  * Load one account and hand it to main.js. Never throws: every failure ends as
  * a sentence in the status line with the demo lawn still on screen.
+ * @param force skip the fresh cache and ask again - what saving a token needs,
+ *   because the cached copy came from the public mirror and has no private days.
  * @returns the data shown, or null.
  */
-export async function loadUser(raw, { fromUrl = false } = {}) {
+export async function loadUser(raw, { fromUrl = false, force = false } = {}) {
   if (!els) return null;
   const login = parseUserInput(raw);
   if (!login) {
@@ -159,7 +161,7 @@ export async function loadUser(raw, { fromUrl = false } = {}) {
   const done = () => { clearTimeout(slow); if (mine === seq) busy(false); };
 
   const cached = readCache(login);
-  if (cached && cached.fresh) {
+  if (!force && cached && cached.fresh) {
     done();
     show(login, cached.data, fromUrl);
     return cached.data;
@@ -260,7 +262,7 @@ export function initLoader(next = {}) {
     }
     paintToken();
     setStatus('ok', 'token saved in this browser - it goes only to api.github.com');
-    if (loaded) loadUser(loaded);
+    if (loaded) loadUser(loaded, { force: true });
   });
   els.forget.addEventListener('click', () => {
     els.token.value = '';
