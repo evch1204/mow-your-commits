@@ -359,7 +359,10 @@ function autoDrive() {
   let d = want - m.angle;
   while (d > Math.PI) d -= 2 * Math.PI;
   while (d < -Math.PI) d += 2 * Math.PI;
-  input.up = true;
+  // A U-turn at full throttle has a nine-cell radius, which is wider than the
+  // lawn is deep, so the demo used to swing out into the meadow and a headless
+  // screenshot could catch it there. Feather the gas and it pivots on the lawn.
+  input.up = Math.abs(d) < 0.8;
   input.right = d > 0.03;
   input.left = d < -0.03;
 }
