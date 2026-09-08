@@ -4,7 +4,7 @@ import {
   MONTH_NAMES, SEASON_WORD, ROWS, DEFAULT_SEED,
 } from './core/lawn.js';
 import { daysForYear, daysForRolling } from './core/contrib.js';
-import { initLoader, loadUser, setStatus } from './loader.js';
+import { initLoader, loadUser, setStatus, restoreStatus } from './loader.js';
 import { Renderer2D } from './render2d/index.js';
 import { Renderer3D } from './render3d/index.js';
 
@@ -175,9 +175,10 @@ function swapLawn(next, { first = false } = {}) {
   }
 }
 
-/** A real account can have years with nothing in them. Say so. */
-function announceEmpty() {
-  if (!source || lawn.mowable > 0) return;
+/** A real account can have years with nothing in them. Say so, or stop saying so. */
+function announceYear() {
+  if (!source) return;
+  if (lawn.mowable > 0) { restoreStatus(); return; }
   const when = year === null ? 'the last year' : String(year);
   setStatus('ok', 'nothing grew in ' + when + ' - pick another year');
 }
@@ -195,7 +196,7 @@ function pickYear(y) {
   year = y;
   swapLawn(lawnFor(y));
   setYearParam();
-  announceEmpty();
+  announceYear();
   stage.focus();
 }
 
@@ -359,7 +360,7 @@ initLoader({
     buildYears();
     swapLawn(lawnFor(year), { first });
     setYearParam();
-    announceEmpty();
+    announceYear();
   },
   onDemo() {
     source = null;

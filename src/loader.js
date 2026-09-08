@@ -22,6 +22,7 @@ let els = null;
 let hooks = { onData() {}, onDemo() {} };
 let seq = 0;             // bumped per request, so a stale response is ignored
 let loaded = null;       // the login on screen, or null for the demo
+let accountLine = '';    // the last thing said about the account, so a year change can put it back
 
 /** Set the form's state (idle | loading | ok | error) and its status line. */
 export function setStatus(state, text) {
@@ -129,7 +130,8 @@ function show(login, data, fromUrl) {
   document.title = login + ' - ' + TITLE;
   if (!fromUrl || new URLSearchParams(location.search).get('user') !== login) syncUrl(login);
   // Status first: onData may replace it (an empty year says so).
-  setStatus('ok', summarise(login, data));
+  accountLine = summarise(login, data);
+  setStatus('ok', accountLine);
   hooks.onData({ ...data, login });
 }
 
@@ -175,7 +177,8 @@ export async function loadUser(raw, { fromUrl = false } = {}) {
     done();
     if (cached) {                       // stale, but better than nothing
       show(login, cached.data, fromUrl);
-      setStatus('ok', 'showing ' + login + ' from ' + ago(cached.age) + ' (API unreachable)');
+      accountLine = 'showing ' + login + ' from ' + ago(cached.age) + ' (API unreachable)';
+      setStatus('ok', accountLine);
       return cached.data;
     }
     setStatus('error', messageFor(err, login));
@@ -183,10 +186,20 @@ export async function loadUser(raw, { fromUrl = false } = {}) {
   }
 }
 
+/**
+ * Say again what account is on screen. main.js calls this when a year with
+ * grass replaces one that had none, so "nothing grew in 2019" cannot linger
+ * over a full lawn.
+ */
+export function restoreStatus() {
+  if (loaded && accountLine) setStatus('ok', accountLine);
+}
+
 /** Drop the loaded account and put the demo lawn back. */
 export function backToDemo() {
   seq++;                                // abandon anything in flight
   loaded = null;
+  accountLine = '';
   busy(false);
   els.demo.hidden = true;
   els.user.value = '';
