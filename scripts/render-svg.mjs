@@ -7,24 +7,19 @@
 // This is what the composite action runs. It imports only src/core/* and
 // src/export/*, both of which are dependency-free, so it needs no npm install.
 // Keep it that way: `three` belongs to the 3D renderer and must never be
-// reachable from here.
+// reachable from here. Parsing and grid layout are the site's own modules, so
+// the picture in a README is the picture on the page.
 
 import { mkdir, writeFile, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { createLawn, layoutYear, ROWS, COLS } from '../src/core/lawn.js';
+import { createLawn, isoDay } from '../src/core/lawn.js';
+import { normaliseApi, normaliseGraphql } from '../src/core/github.js';
+import { daysForYear, daysForRolling } from '../src/core/contrib.js';
 import { lawnToSvg } from '../src/export/svg.js';
 
 const API = 'https://api.github.com/graphql';
 const FALLBACK = 'https://github-contributions-api.jogruber.de/v4/';
 const UA = 'mow-your-commits';
-
-const LEVELS = {
-  NONE: 0,
-  FIRST_QUARTILE: 1,
-  SECOND_QUARTILE: 2,
-  THIRD_QUARTILE: 3,
-  FOURTH_QUARTILE: 4,
-};
 
 // --- args -----------------------------------------------------------------
 
@@ -68,14 +63,18 @@ function parseOutput(line) {
 }
 
 // --- data -----------------------------------------------------------------
-
-const byDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+// No parsing lives here. src/core/github.js turns either payload into the same
+// { days, years, totals } the site uses, and src/core/contrib.js lays those
+// days out in the grid the site draws, so a README picture and the page can
+// never drift apart. Both are dependency-free.
 
 /**
  * The official calendar. `${{ github.token }}` is enough to read any public
  * profile, which is why this is the primary path: exact counts, no third party.
+ * The response is handed to normaliseGraphql under the key it expects, so the
+ * NONE..FOURTH_QUARTILE mapping and the "nothing after today" rule are shared.
  */
-async function fromGraphQL(user, token, year) {
+async function fromGraphQL(user, token, year, today) {
   const vars = { login: user };
   let sig = '';
   let call = '';
@@ -85,9 +84,10 @@ async function fromGraphQL(user, token, year) {
     sig = ', $from: DateTime!, $to: DateTime!';
     call = '(from: $from, to: $to)';
   }
+  const key = year ? 'y' + year : 'last';
   const query = `query($login: String!${sig}) {
     user(login: $login) {
-      contributionsCollection${call} {
+      ${key}: contributionsCollection${call} {
         contributionCalendar {
           totalContributions
           weeks { contributionDays { date contributionCount contributionLevel } }
@@ -111,25 +111,13 @@ async function fromGraphQL(user, token, year) {
   }
   const json = await res.json();
   if (json.errors && json.errors.length) throw new Error('graphql: ' + json.errors[0].message);
-  const cal = json.data && json.data.user
-    && json.data.user.contributionsCollection.contributionCalendar;
-  if (!cal) throw new Error('no such user: ' + user);
-
-  const days = [];
-  for (const w of cal.weeks) {
-    for (const d of w.contributionDays) {
-      days.push({
-        date: d.date,
-        count: d.contributionCount,
-        level: LEVELS[d.contributionLevel] || 0,
-      });
-    }
-  }
-  return days.sort(byDate);
+  if (!json.data || !json.data.user) throw new Error('no such user: ' + user);
+  const data = normaliseGraphql(json, today);
+  return year ? data.days : (data.last || data.days);
 }
 
 /** No token, or the token cannot see the calendar: a public CORS mirror. */
-async function fromMirror(user, year) {
+async function fromMirror(user, year, today) {
   const url = FALLBACK + encodeURIComponent(user) + '?y=' + (year || 'last');
   const res = await fetch(url, { headers: { 'user-agent': UA } });
   if (!res.ok) {
@@ -138,38 +126,24 @@ async function fromMirror(user, year) {
       ? 'no such user: ' + user
       : `contributions api returned ${res.status}`);
   }
-  const json = await res.json();
-  const days = (json.contributions || []).map((d) => ({
-    date: d.date,
-    count: d.count || 0,
-    level: d.level || 0,
-  }));
+  const { days } = normaliseApi(await res.json(), today);
   if (!days.length) throw new Error('no contributions for ' + user);
-  return days.sort(byDate);   // y=all comes back descending
+  return days;
 }
 
-/**
- * A flat day list -> exactly the grid the site draws: whole Sunday..Saturday
- * weeks, at most 52 of them, with today's partial week padded out with voids.
- */
-function rollingGrid(days) {
-  let i = 0;
-  while (i < days.length && new Date(days[i].date + 'T00:00:00').getDay() !== 0) i++;
-  const grid = days.slice(i);
-  while (grid.length % ROWS !== 0) grid.push({ date: null, level: 0, count: 0, void: true });
-  return grid.length > COLS * ROWS ? grid.slice(grid.length - COLS * ROWS) : grid;
-}
-
-async function loadDays(user, token, year) {
+async function loadDays(user, token, year, today) {
   if (token) {
     try {
-      return { days: await fromGraphQL(user, token, year), via: 'api.github.com/graphql' };
+      return { days: await fromGraphQL(user, token, year, today), via: 'api.github.com/graphql' };
     } catch (err) {
       if (/no such user/.test(err.message)) throw err;
       console.log(`  graphql failed (${err.message}), falling back`);
     }
   }
-  return { days: await fromMirror(user, year), via: 'github-contributions-api.jogruber.de' };
+  return {
+    days: await fromMirror(user, year, today),
+    via: 'github-contributions-api.jogruber.de',
+  };
 }
 
 // --- main -----------------------------------------------------------------
@@ -185,6 +159,7 @@ async function main() {
 
   const token = args.demo ? '' : (process.env.GITHUB_TOKEN || '').trim();
   const seed = args.seed ? Number(args.seed) : undefined;
+  const today = isoDay(new Date());
 
   // One lawn per distinct year, built once and reused by every output.
   const lawns = new Map();
@@ -195,9 +170,12 @@ async function main() {
     if (args.demo) {
       lawn = createLawn(null, { seed, year });
     } else {
-      const { days, via } = await loadDays(user, token, year);
+      const { days, via } = await loadDays(user, token, year, today);
       console.log(`  ${year || 'last year'}: ${days.length} days via ${via}`);
-      lawn = createLawn(year ? layoutYear(days, year) : rollingGrid(days), { year });
+      // exactly the grids the site builds: one calendar year, or the rolling
+      // 52 weeks ending today
+      const grid = year ? daysForYear(days, year, today) : daysForRolling(days);
+      lawn = createLawn(grid, { year });
     }
     lawns.set(key, lawn);
     return lawn;
