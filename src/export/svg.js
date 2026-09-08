@@ -330,11 +330,17 @@ export function lawnToSvg(lawn, opts) {
   const H = GEOM.OY + rows * PITCH + GEOM.PAD_B;
   const gw = cols * PITCH - GAP;
 
+  // The animated loop mows one row over and over, so that row is drawn cut and
+  // gets a regrowing overlay on top. -1 when there is nothing to animate.
+  const animRow = o.animate && !o.asIs && o.k > 0 && o.k < cols * rows
+    ? Math.floor(o.k / cols) : -1;
+
   // Which cells read as mowed in this picture. Never touches the lawn.
   for (const c of lawn.cells) {
     c.mowedX = c.void || c.level === 0 ? true
-      : o.asIs ? !!c.mowed
-        : (c.row * cols + c.col) < o.k;
+      : c.row === animRow ? true
+        : o.asIs ? !!c.mowed
+          : (c.row * cols + c.col) < o.k;
   }
 
   const parts = [];
@@ -411,11 +417,23 @@ export function lawnToSvg(lawn, opts) {
   // 8. dressing: pebbles on bare dirt, then snowflakes and fallen leaves
   parts.push(`<g id="dressing">${dressing(lawn, theme, o, dots)}</g>`);
 
-  // 9. mower
+  // 8b. the regrowing overlay the animated mower cuts away, frame by frame
+  if (animRow >= 0) parts.push(coverGroup(lawn, theme, o, animRow, cols));
+
+  // 9. mower. When animating, the outer <g> is the one that drives: it carries
+  // the still position as a plain transform (so a renderer that ignores SMIL
+  // still gets the primary picture) and an animateTransform that overrides it.
   if (o.mower) {
     const m = mowerAt(lawn, o, cols, rows);
-    parts.push(`<g id="mower" transform="translate(${n2(m.x)},${n2(m.y)})`
-      + ` rotate(${n2(m.deg)}) scale(${GEOM.MOWER_SCALE})">${mowerGroup(theme, '')}</g>`);
+    const inner = `<g transform="rotate(${n2(m.deg)}) scale(${GEOM.MOWER_SCALE})">`
+      + mowerGroup(theme, '') + `</g>`;
+    const drive = animRow >= 0
+      ? `<animateTransform attributeName="transform" type="translate"`
+        + ` from="${n2(px(0))} ${n2(py(animRow + 0.5))}"`
+        + ` to="${n2(px(cols))} ${n2(py(animRow + 0.5))}"`
+        + ` dur="${LOOP}s" repeatCount="indefinite"/>`
+      : '';
+    parts.push(`<g id="mower" transform="translate(${n2(m.x)},${n2(m.y)})">${drive}${inner}</g>`);
   }
 
   // 10. Mon / Wed / Fri, with a paper halo so nothing can hide them
@@ -489,6 +507,43 @@ function dressing(lawn, theme, o, dots) {
   if (leaves.length) out.push(`<g fill="${ORANGE}">${leaves.join('')}</g>`);
   out.push(batched(dots, (col) => `fill="${col}"`));
   return out.join('');
+}
+
+/** One pass of the animated mower, seconds. */
+const LOOP = 8;
+
+/**
+ * The animated row is drawn cut; this puts the overgrown version back on top of
+ * it and fades each cell out at the moment the mower reaches that column. At
+ * t=0 the whole row is grown again, so the loop reads as "regrow, mow, repeat".
+ * Static opacity matches the still, for anything that ignores SMIL.
+ */
+function coverGroup(lawn, theme, o, row, cols) {
+  const at = o.k % cols;
+  const groups = [];
+  for (const c of lawn.cells) {
+    if (c.row !== row || c.void || c.level === 0) continue;
+    const season = seasonIndexOfCol(lawn, c.col);
+    const x = tileX(c.col);
+    const y = tileY(c.row);
+    const bag = new Map();
+    const dots = new Map();
+    const grown = { col: c.col, row: c.row, level: c.level, void: false, mowedX: false };
+    tuft(bag, dots, x, y, grown, season, theme, o, 1);
+    const t = (c.col + 0.5) / cols;
+    groups.push(`<g opacity="${c.col < at ? 0 : 1}">`
+      + tileRect(c, x, y, season, theme, false)
+      + `<g fill="none" stroke-linecap="round">`
+      + batched(bag, (k) => {
+        const [col, w] = k.split('|');
+        return `stroke="${col}" stroke-width="${w}"`;
+      })
+      + `</g>${batched(dots, (col) => `fill="${col}"`)}`
+      + `<animate attributeName="opacity" values="1;1;0;0"`
+      + ` keyTimes="0;${t.toFixed(4)};${Math.min(1, t + 0.01).toFixed(4)};1"`
+      + ` dur="${LOOP}s" repeatCount="indefinite"/></g>`);
+  }
+  return `<g id="cover">${groups.join('')}</g>`;
 }
 
 /** Where the mower parks, in page pixels + degrees. */

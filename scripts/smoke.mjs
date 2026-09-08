@@ -695,6 +695,20 @@ ok('caption names the total',
     + ' contributions in the last year<'), String(svgLawn.totalContributions));
 ok('a user prefixes the caption',
   lawnToSvg(svgLawn, { user: 'torvalds' }).includes('>@torvalds - '));
+const animSvg = lawnToSvg(svgLawn, { animate: true });
+ok('animate drives the mower', animSvg.includes('<animateTransform'));
+ok('animate loops forever', animSvg.includes('repeatCount="indefinite"'));
+ok('the still animates nothing', !svg.includes('<animate'));
+const animRow = Math.floor(Math.round(0.5 * svgLawn.cols * ROWS) / svgLawn.cols);
+ok('one regrowing cover per grown cell of the mowed row',
+  (animSvg.match(/<animate attributeName="opacity"/g) || []).length
+    === svgLawn.cells.filter((c) => c.row === animRow && !c.void && c.level > 0).length);
+ok('animate is deterministic', lawnToSvg(svgLawn, { animate: true }) === animSvg);
+ok('animate still loads nothing external',
+  !/https?:\/\//.test(animSvg.replace(/xmlns="[^"]*"/, '')));
+ok('a fully mowed lawn has nothing to animate',
+  !lawnToSvg(svgLawn, { animate: true, mowed: 1 }).includes('<animateTransform'));
+
 
 console.log(failures ? `\n${failures} FAILED` : '\nall good');
 process.exit(failures ? 1 : 0);
