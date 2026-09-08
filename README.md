@@ -1,5 +1,14 @@
 # mow-your-commits
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/lawn-dark.svg">
+  <img alt="a GitHub contribution graph drawn as a half-mowed doodle lawn" src="docs/lawn.svg">
+</picture>
+
+*(a made-up developer, rendered by `node scripts/render-svg.mjs --demo`. once the
+`mow the lawn` workflow has run here, the owner's real lawn lives on the `output`
+branch and this repo points at that instead.)*
+
 🌱 Your GitHub contribution graph is a lawn. Mow it. A tiny browser game built with Three.js and canvas.
 
 **Unmowed = overgrown doodle grass hiding the graph. Mowed = the clean GitHub tile
@@ -37,6 +46,14 @@ years offered are exactly the years that profile's own year picker shows. The ro
 "last year" is 52 weeks; a calendar year is GitHub's 53- or 54-column grid, with void
 cells before 1 Jan and after 31 Dec (and after today, in the current year) that are
 drawn as nothing and can't be mowed.
+
+## try it
+
+**<https://evch1204.github.io/mow-your-commits/>**
+
+Type a username and drive. `?user=torvalds` mows somebody else's lawn; `?year=2025`
+picks a calendar year. Mow all 52 weeks and the end card gives you a time, a brag
+line and a picture to post.
 
 ## Run
 
@@ -87,6 +104,84 @@ lies about phone width. For a real 390px shot, point it at a local file holding
 | `?start=30` | debug: park the mower in a column (drive into a season) |
 | `?yaw=45`, `?dist=6` | debug: preset look-around angle and camera distance |
 | `?finish=1` | debug: mow everything before the first paint (end card) |
+| `?og=1` | debug: hide the controls and the landing strips, for the 1200x630 social card |
+
+## put it in your profile
+
+A GitHub Action mows your graph every night and commits the picture to a branch.
+No tokens to create, no server, nothing to host.
+
+1. Make a repo named after you (`you/you`) if you don't have one.
+2. Add `.github/workflows/lawn.yml`:
+
+```yaml
+name: mow the lawn
+
+on:
+  schedule: [{ cron: '0 3 * * *' }]
+  workflow_dispatch:
+  push: { branches: [main] }
+
+permissions: { contents: write }
+
+jobs:
+  mow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: evch1204/mow-your-commits@v1
+        with:
+          github_user_name: ${{ github.repository_owner }}
+          outputs: |
+            dist/lawn.svg
+            dist/lawn-dark.svg?theme=dark
+
+      - uses: crazy-max/ghaction-github-pages@v4
+        with: { target_branch: output, build_dir: dist }
+        env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+```
+
+3. Run it once from the Actions tab, then paste this into your README:
+
+```html
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/USER/USER/output/lawn-dark.svg">
+  <img alt="my GitHub contribution graph as a half-mowed lawn" src="https://raw.githubusercontent.com/USER/USER/output/lawn.svg">
+</picture>
+```
+
+The page has a **copy workflow** and a **copy markdown** button that fill in your
+username for you.
+
+Each `outputs` line is a path plus options as a query string:
+
+| option | values | what it does |
+| --- | --- | --- |
+| `theme` | `light` (default), `dark` | GitHub's own dark ramp on `#0D1117` |
+| `year` | `2025` | a calendar year instead of the rolling 52 weeks |
+| `mowed` | `0`..`1` (default `0.5`), `as-is` | how much is already cut |
+| `mower` | `0` | park the mower off the picture |
+| `animate` | `1` | SMIL: the mower drives the half-mowed row on an 8 s loop |
+| `caption` | text, or `0` for none | replaces "1,234 contributions in the last year" |
+
+The data is GitHub's own `contributionsCollection` GraphQL calendar, read with the
+default action token; without a token it falls back to
+`github-contributions-api.jogruber.de`. Full details in [`action/README.md`](action/README.md).
+
+## download
+
+The **put your lawn in your README** section on the page has **download svg** and
+**download png**, and the end card has **download png** for the lawn exactly as you
+mowed it. Both use the same `src/export/svg.js` the Action does, so the file you get
+is the picture you were looking at. Or render one yourself:
+
+```
+node scripts/render-svg.mjs --user torvalds --outputs "out/lawn.svg"
+node scripts/render-svg.mjs --demo --outputs "out/a.svg\nout/b.svg?theme=dark&animate=1"
+```
+
+The exported SVG embeds the Latin subset of **Patrick Hand** by Patrick Wagesreiter
+(SIL Open Font License 1.1) as a `data:` URI, because an `<img>` SVG in a README
+cannot load anything external.
 
 ## Real data
 
@@ -148,4 +243,4 @@ after any failure. `?seed=123` picks a different one.
 - [ ] hand-drawn tuft and mower textures instead of procedural strokes
 - [ ] extension: content script that swaps `.js-calendar-graph` for the lawn
 - [ ] sound
-- [ ] share image export
+- [x] share image export (SVG/PNG on the page, and a GitHub Action for your README)
