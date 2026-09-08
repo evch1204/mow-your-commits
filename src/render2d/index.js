@@ -34,6 +34,9 @@ export class Renderer2D {
     this.popups = [];
     this.tracks = [];
     this.puffs = [];
+    this.weather = [];
+    this.cutAt = new Map();
+    this.now = 0;
     this.tag = { x: 0, y: 0, text: '', life: 0 };
     this.lastTs = 0;
     this.setLawn(lawn);
@@ -50,6 +53,7 @@ export class Renderer2D {
     this.canvas.style.width = '100%';
     this.canvas.style.aspectRatio = `${this.width} / ${this.height}`;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.buildWeather();
     this.reset();
   }
 
@@ -58,6 +62,7 @@ export class Renderer2D {
     this.popups.length = 0;
     this.tracks.length = 0;
     this.puffs.length = 0;
+    this.cutAt.clear();
     this.tag.life = 0;
     this.tag.x = 0;
     this.tag.y = 0;
@@ -294,24 +299,30 @@ export class Renderer2D {
   onMowed(indices, quiet) {
     const { lawn } = this;
     const m = lawn.mower;
+    const sa = Math.sin(m.angle), ca = Math.cos(m.angle);
+    // the chute sits on the mower's right, in mower-local (forward, right)
+    const S = 1.25;
+    const chuteX = this.px(m.x) + (6 * ca - 12 * sa) * S;
+    const chuteY = this.py(m.z) + (6 * sa + 12 * ca) * S;
     let sum = 0;
+    let heroic = false;
     for (const i of indices) {
       const c = lawn.cells[i];
       if (!c || c.void) continue;
       const season = seasonIndexOfCol(lawn, c.col);
       sum += c.count;
-      // clippings come out of the chute, on the mower's right
-      const cx = this.tileX(c.col) + CELL / 2;
-      const cy = this.tileY(c.row) + CELL / 2;
+      if (c.heroic) heroic = true;
+      this.cutAt.set(i, this.now);
       const col = clipColor(c.level, season);
-      const n = 2 + 2 * c.level;
+      const n = 3 + 2 * c.level + (c.heroic ? 6 : 0);
       for (let k = 0; k < n; k++) {
         this.clippings.push({
-          x: cx, y: cy,
-          vx: (Math.random() - 0.5) * 2.4 - Math.sin(m.angle) * 2.4,
-          vy: (Math.random() - 0.5) * 2.4 + Math.cos(m.angle) * 2.4,
-          s: 2 + Math.random(),
-          life: 16 + Math.random() * 10,
+          x: chuteX, y: chuteY,
+          vx: -sa * 2.6 + ca * 0.6 + (Math.random() - 0.5) * 2.4,
+          vy: ca * 2.6 + sa * 0.6 + (Math.random() - 0.5) * 2.4,
+          s: 2.5 + Math.random() * 1.5,
+          a: Math.random() * 6.28,
+          life: 22 + Math.random() * 12,
           c: col,
         });
       }
@@ -324,14 +335,59 @@ export class Renderer2D {
       if (!this.tag.x) { this.tag.x = this.px(m.x); this.tag.y = this.py(m.z); }
     }
     if (sum > 0) {
-      // stagger, so a burst of labels does not stack into one blob
-      const j = this.popups.length % 3;
-      this.popups.push({
-        x: this.px(m.x) + (j - 1) * 36,
-        y: this.py(m.z) - 10 - j * 9,
-        n: sum, t: 0,
-      });
+      // a burst of tiny cuts reads as one find, not a stack of labels
+      const top = this.popups[this.popups.length - 1];
+      if (top && top.age < 0.25) {
+        top.n += sum;
+        top.heroic = top.heroic || heroic;
+      } else {
+        const j = this.popups.length % 3;
+        this.popups.push({
+          x: this.px(m.x) + (j - 1) * 36,
+          y: this.py(m.z) - 10 - j * 9,
+          n: sum, t: 0, age: 0, heroic,
+        });
+      }
     }
+  }
+
+  /**
+   * Twin tyre tracks, sampled every few pixels of travel and drawn under the
+   * grass, so they only show where the lawn has actually been cut.
+   */
+  /** Drop a track sample if the mower has moved far enough since the last one. */
+  sampleTrack() {
+    const m = this.lawn.mower;
+    const mx = this.px(m.x), my = this.py(m.z);
+    const tail = this.tracks[this.tracks.length - 1];
+    if (tail && Math.hypot(mx - tail.x, my - tail.y) <= 3) return;
+    this.tracks.push({ x: mx, y: my, a: m.angle, life: 1 });
+    if (this.tracks.length > 160) this.tracks.shift();
+  }
+
+  drawTracks(dt) {
+    const { ctx } = this;
+    this.sampleTrack();
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = 'round';
+    for (let i = this.tracks.length - 1; i >= 0; i--) {
+      const t = this.tracks[i];
+      t.life -= dt / 4;
+      if (t.life <= 0) { this.tracks.splice(i, 1); continue; }
+      const p = this.tracks[i - 1];
+      if (!p) continue;
+      if (Math.hypot(t.x - p.x, t.y - p.y) > 40) continue;   // teleport, not a drive
+      ctx.strokeStyle = `rgba(44,44,42,${0.15 * t.life})`;
+      for (const s of [-1, 1]) {
+        const nx = -Math.sin(t.a) * 8.5 * s, ny = Math.cos(t.a) * 8.5 * s;
+        const px2 = -Math.sin(p.a) * 8.5 * s, py2 = Math.cos(p.a) * 8.5 * s;
+        ctx.beginPath();
+        ctx.moveTo(p.x + px2, p.y + py2);
+        ctx.lineTo(t.x + nx, t.y + ny);
+        ctx.stroke();
+      }
+    }
+    ctx.lineCap = 'butt';
   }
 
   // --- mower ------------------------------------------------------------
@@ -347,24 +403,6 @@ export class Renderer2D {
     const mx = this.px(m.x);
     const my = this.py(m.z);
     const S = 1.25;
-
-    // tyre tracks from the rear wheels
-    if (Math.abs(m.vel) > 0.02) {
-      this.tracks.push({ x: mx, y: my, a: m.angle, life: 1 });
-      if (this.tracks.length > 90) this.tracks.shift();
-    }
-    ctx.lineWidth = 2;
-    for (let i = this.tracks.length - 1; i >= 0; i--) {
-      const t = this.tracks[i];
-      t.life -= dt * 0.7;
-      if (t.life <= 0) { this.tracks.splice(i, 1); continue; }
-      ctx.strokeStyle = `rgba(44,44,42,${0.13 * t.life})`;
-      const nx = -Math.sin(t.a) * 10, ny = Math.cos(t.a) * 10;
-      ctx.beginPath();
-      ctx.moveTo(t.x + nx, t.y + ny); ctx.lineTo(t.x + nx * 1.02, t.y + ny * 1.02);
-      ctx.moveTo(t.x - nx, t.y - ny); ctx.lineTo(t.x - nx * 1.02, t.y - ny * 1.02);
-      ctx.stroke();
-    }
 
     // exhaust, back left
     if (m.acc > 0 && Math.random() < 0.45) {
@@ -486,21 +524,34 @@ export class Renderer2D {
 
   // --- overlays ---------------------------------------------------------
 
+  /** A bigger day gets a bigger number; the best days get an exclamation. */
   drawPopups(dt) {
     const { ctx } = this;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     for (let i = this.popups.length - 1; i >= 0; i--) {
       const p = this.popups[i];
-      p.t += dt / 0.7;
+      p.age += dt;
+      p.t += dt / 0.8;
       if (p.t >= 1) { this.popups.splice(i, 1); continue; }
       const a = p.t < 0.7 ? 1 : 1 - (p.t - 0.7) / 0.3;
-      ctx.font = `26px ${FONT}`;
+      const label = '+' + p.n + (p.heroic ? '!' : '');
+      const y = p.y - 8 - p.t * 30;
+      ctx.font = `${Math.round(22 + Math.min(16, p.n * 0.45))}px ${FONT}`;
       ctx.lineWidth = 4; ctx.lineJoin = 'round';
       ctx.strokeStyle = `rgba(251,249,242,${a * 0.95})`;
-      ctx.strokeText('+' + p.n, p.x, p.y - 8 - p.t * 26);
-      ctx.fillStyle = `rgba(44,44,42,${a})`;
-      ctx.fillText('+' + p.n, p.x, p.y - 8 - p.t * 26);
+      ctx.strokeText(label, p.x, y);
+      ctx.globalAlpha = a;
+      if (p.n >= 25) {
+        ctx.fillStyle = ORANGE;
+        ctx.fillText(label, p.x, y);
+        ctx.strokeStyle = INK; ctx.lineWidth = 1.2;
+        ctx.strokeText(label, p.x, y);
+      } else {
+        ctx.fillStyle = INK;
+        ctx.fillText(label, p.x, y);
+      }
+      ctx.globalAlpha = 1;
     }
     ctx.textAlign = 'left';
   }
@@ -625,6 +676,107 @@ export class Renderer2D {
     }
   }
 
+  // --- the year's weather, laid out over its own columns -----------------
+
+  /**
+   * One persistent particle pool per season, each confined to the columns
+   * that season actually owns, so the whole year's climate is on screen at
+   * once: snow over winter, petals over spring, fluff over summer, leaves
+   * over autumn.
+   */
+  buildWeather() {
+    const { lawn } = this;
+    this.weather = [];
+    const runs = [[], [], [], []];
+    let cur = -1, from = 0;
+    for (let c = 0; c <= lawn.cols; c++) {
+      const s = c < lawn.cols ? seasonIndexOfCol(lawn, c) : -1;
+      if (s !== cur) {
+        if (cur >= 0) runs[cur].push([from, c]);
+        cur = s; from = c;
+      }
+    }
+    const COUNT = [70, 16, 14, 26];
+    for (let s = 0; s < 4; s++) {
+      const rs = runs[s];
+      const total = rs.reduce((a, r) => a + (r[1] - r[0]), 0);
+      if (!total) continue;                       // a season with no columns
+      for (let i = 0; i < COUNT[s]; i++) {
+        let t = Math.random() * total;
+        let run = rs[0];
+        for (const r of rs) { t -= r[1] - r[0]; if (t <= 0) { run = r; break; } }
+        this.weather.push({
+          s, i,
+          x0: this.tileX(run[0]) - GAP / 2,
+          x1: this.tileX(run[1]) - GAP / 2,
+          x: 0, y: 0, r: 0, a: Math.random() * 6.28,
+        });
+        this.respawn(this.weather[this.weather.length - 1], true);
+      }
+    }
+  }
+
+  respawn(p, anywhere) {
+    const { lawn } = this;
+    const top = OY - 14;
+    const bottom = OY + lawn.rows * PITCH - GAP + 6;
+    p.x = p.x0 + Math.random() * Math.max(1, p.x1 - p.x0);
+    if (p.s === 2) p.y = anywhere ? top + Math.random() * (bottom - top) : bottom;
+    else p.y = anywhere ? top + Math.random() * (bottom - top) : top;
+    p.r = p.s === 0 ? 1.2 + Math.random() * 1 : p.s === 1 ? 1.4 : p.s === 2 ? 1.3 : 1;
+    p.a = Math.random() * 6.28;
+  }
+
+  drawWeather(dt) {
+    const { ctx, lawn } = this;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    const top = OY - 14;
+    const bottom = OY + lawn.rows * PITCH - GAP + 6;
+    const LEAF = [ORANGE, '#EF9F27', AUTUMN_BLADE];
+    for (const p of this.weather) {
+      if (p.s === 0) {
+        p.y += 14 * dt;
+        p.x += Math.sin(this.now * 1.1 + p.i) * 0.35;
+        if (p.y > bottom) this.respawn(p);
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+      } else if (p.s === 1) {
+        p.y += 8 * dt;
+        p.x += Math.sin(this.now * 0.9 + p.i) * 0.4;
+        if (p.y > bottom) this.respawn(p);
+        ctx.fillStyle = PETAL[p.i % 2];
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+      } else if (p.s === 2) {
+        p.y -= 6 * dt;                                  // fluff rises
+        p.x += Math.sin(this.now * 0.8 + p.i) * 0.3;
+        if (p.y < top) this.respawn(p);
+        ctx.fillStyle = FLUFF;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+        ctx.strokeStyle = 'rgba(44,44,42,0.5)'; ctx.lineWidth = 0.5;
+        ctx.beginPath(); ctx.moveTo(p.x, p.y + p.r); ctx.lineTo(p.x, p.y + p.r + 2.4); ctx.stroke();
+      } else {
+        p.y += 10 * dt;
+        p.a += 2 * dt;
+        p.x += Math.sin(this.now * 1.3 + p.i) * 0.5;
+        if (p.y > bottom) this.respawn(p);
+        ctx.fillStyle = LEAF[p.i % 3];
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, 3, 1.8, p.a, 0, 7); ctx.fill();
+      }
+      if (p.x < p.x0 - 4) p.x = p.x1;
+      if (p.x > p.x1 + 4) p.x = p.x0;
+    }
+
+    // summer air shimmers just above the top row
+    const summer = this.weather.find((p) => p.s === 2);
+    if (summer) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.lineWidth = 2;
+      for (const dy of [0, 3]) {
+        this.line(summer.x0, OY - 7 + dy, summer.x1, OY - 7 + dy, 1.5);
+      }
+    }
+  }
+
   // --- frame ------------------------------------------------------------
 
   draw(ts) {
@@ -632,8 +784,9 @@ export class Renderer2D {
     const cols = lawn.cols;
     const dt = Math.min(0.05, this.lastTs ? (ts - this.lastTs) / 1000 : 1 / 60);
     this.lastTs = ts;
+    this.now += dt;
     if (ts - this.lastBoil > 120) { this.boil++; this.lastBoil = ts; }
-    this.spin += Math.abs(lawn.mower.vel) * 4 + 0.08;
+    this.spin += Math.abs(lawn.mower.vel) * 6 + 0.1;
 
     ctx.clearRect(0, 0, this.width, this.height);
     ctx.fillStyle = PAPER;
@@ -671,10 +824,24 @@ export class Renderer2D {
     this.drawBed(gw, lawn.rows * PITCH - GAP);
 
     // tiles first, then grass, so tufts spill over their neighbours
-    for (const c of lawn.cells) {
+    for (let i = 0; i < lawn.cells.length; i++) {
+      const c = lawn.cells[i];
       this.seed = (c.col * 31 + c.row * 7) * 131 + this.boil * 17 + 1;
       this.drawTile(this.tileX(c.col), this.tileY(c.row), c, seasonIndexOfCol(lawn, c.col));
+      // a fresh cut flashes for a moment, so you see what you just took
+      const at = this.cutAt.get(i);
+      if (at !== undefined) {
+        const age = this.now - at;
+        if (age > 1.2) { this.cutAt.delete(i); continue; }
+        ctx.fillStyle = `rgba(255,255,255,${0.35 * (1 - age / 1.2)})`;
+        this.roundedPath(this.tileX(c.col), this.tileY(c.row), CELL, CELL, R, 0.7);
+        ctx.fill();
+      }
     }
+
+    // tracks sit under the grass, so they only show where you have cut
+    this.drawTracks(dt);
+
     for (const c of lawn.cells) {
       if (c.void || !c.level) continue;
       this.seed = (c.col * 31 + c.row * 7) * 131 + this.boil * 17 + 1;
@@ -701,18 +868,24 @@ export class Renderer2D {
       }
     }
 
+    this.drawWeather(dt);
     this.mower(dt);
 
-    // clippings on top of the lawn
+    // clippings tumbling out of the chute
     for (let i = this.clippings.length - 1; i >= 0; i--) {
       const q = this.clippings[i];
       q.x += q.vx; q.y += q.vy;
       q.vx *= 0.94; q.vy *= 0.94;
+      q.a += 0.2;
       q.life--;
       if (q.life <= 0) { this.clippings.splice(i, 1); continue; }
       ctx.globalAlpha = Math.min(1, q.life / 10);
       ctx.fillStyle = q.c;
-      ctx.fillRect(q.x, q.y, q.s, q.s);
+      ctx.save();
+      ctx.translate(q.x, q.y);
+      ctx.rotate(q.a);
+      ctx.fillRect(-q.s / 2, -q.s / 2, q.s, q.s * 0.7);
+      ctx.restore();
       ctx.globalAlpha = 1;
     }
 

@@ -329,6 +329,7 @@ function prewarm(seconds) {
     auto += DT;
     input.up = true;
     const mowed = tick(lawn, input, DT);
+    flat.sampleTrack();     // no frames run in here, so lay the tyre trail by hand
     if (mowed.length) {
       if (i > steps - 20) recent = recent.concat(mowed);
       else recent.length = 0;
