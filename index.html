@@ -121,9 +121,13 @@
     }
     #stage:focus-visible { box-shadow: 0 0 0 3px #97C459; }
     canvas { display: block; width: 100%; }
-    #deep { height: clamp(360px, 46vw, 560px); }
+    #deep { height: clamp(360px, 46vw, 560px); transition: height .3s ease; }
     body[data-view="flat"] #deep, body[data-view="deep"] #flat { display: none; }
     body[data-view="deep"] #stage { cursor: grab; }
+    /* the overview is the poster of the year: a 53x7 lawn is a 7:1 strip, so in
+       a 2:1 frame most of the picture is empty meadow. Letterbox it instead. */
+    body[data-view="deep"][data-cam="overview"] #deep { height: clamp(200px, 24vw, 310px); }
+    body[data-view="deep"][data-cam="overview"] #years { max-height: none; }
 
     #years {
       flex: 0 0 auto; display: flex; flex-direction: column; gap: 5px;
@@ -220,6 +224,8 @@
       #stage { width: 100%; overflow-x: auto; overflow-y: hidden; }
       #flat { min-width: 680px; }
       #deep { height: 360px; }
+      body[data-view="deep"][data-cam="overview"] #deep { height: 210px; }
+      body[data-view="deep"][data-cam="overview"] #years { max-height: none; }
       #years {
         flex-direction: row; width: 100%; max-height: none;
         overflow-x: auto; overflow-y: hidden; padding-bottom: 2px;

@@ -129,6 +129,9 @@ function setView(name) {
 function setCamera(mode) {
   camBtn.setAttribute('aria-pressed', String(!!mode));
   camBtn.textContent = mode ? 'chase cam' : 'overview';
+  // the overview letterboxes the stage (see index.html); the renderer notices
+  // the new canvas size on its next frame
+  document.body.dataset.cam = mode ? 'overview' : 'chase';
 }
 
 // --- year picker ---------------------------------------------------------

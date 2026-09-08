@@ -23,6 +23,22 @@ const DIR_INTENSITY = [0.75, 1.05, 1.35, 1.0];
 /** The three browns an autumn leaf can be. */
 const AUTUMN_TRIO = ['#D85A30', '#EF9F27', '#BA7517'];
 
+/**
+ * The overview is the poster of the year, so it is framed from the lawn out,
+ * not from a fixed distance: `fitOverview` solves for the distance at which
+ * `lawn.cols` weeks just fill the frame, whatever the canvas aspect, and the
+ * pitch is steep enough (38 degrees onto the tiles, against the old 21) that
+ * the grid reads as a contribution graph instead of a strip seen edge-on.
+ * The aim point sits well beyond the far row, which lifts the slab off the
+ * bottom edge and leaves the fence, the signs and the hills stacked above it.
+ */
+const OVER_PITCH = 0.64;
+const OVER_LOOK_Y = 1.2;
+const OVER_LOOK_Z = -5.5;
+const OVER_FALLBACK = 34;      // until the first fit (no canvas size yet)
+const CHASE_FOV = 50;
+const OVER_FOV = 34;           // a longer lens: the far rows stay the size of the near ones
+
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const ease = (t) => t * t * (3 - 2 * t);
 
@@ -101,9 +117,11 @@ export class Renderer3D {
     this.camMode = 0;
     this.camBlend = 0;
     this.chase = { yaw: 0, pitch: 0, dist: 9.6 };
-    this.over = { yaw: 0, pitch: 0, dist: 27 };
+    this.over = { yaw: 0, pitch: 0, dist: OVER_FALLBACK };
+    this.overFit = OVER_FALLBACK;
+    this.overZoomed = false;
     this.CHASE_PITCH = 0.5;
-    this.OVER_PITCH = 0.42;
+    this.OVER_PITCH = OVER_PITCH;
     this.gasHeld = 0;
     this.snapped = false;
 
@@ -735,16 +753,47 @@ export class Renderer3D {
     return Math.hypot(a.x - b.x, a.y - b.y);
   }
 
+  /**
+   * The distance at which the whole year just fits across the frame. The slab
+   * corner nearest the camera is the first thing to leave it, so solve for the
+   * distance where that corner lands on the edge and back off a hair.
+   */
+  fitOverview() {
+    const tanV = Math.tan(OVER_FOV * Math.PI / 360);
+    const tanH = tanV * (this.camera.aspect || 1.8);
+    const x = this.lawn.cols / 2 + 1;             // outer corner of the dirt slab
+    const zn = ROWS / 2 + 0.75;
+    const p = this.OVER_PITCH;
+    const depth = (od) => {
+      const H = od * Math.sin(p), D = od * Math.cos(p);
+      const n = Math.hypot(OVER_LOOK_Y - H, OVER_LOOK_Z - D);
+      return (-H * (OVER_LOOK_Y - H) + (zn - D) * (OVER_LOOK_Z - D)) / n;
+    };
+    let lo = 8, hi = 120;
+    for (let k = 0; k < 30; k++) {
+      const mid = (lo + hi) / 2;
+      if (depth(mid) * tanH >= x) hi = mid; else lo = mid;
+    }
+    const was = this.overFit;
+    this.overFit = clamp(hi, 12, 110);
+    // keep whatever the visitor zoomed to, in proportion; otherwise sit on the fit
+    if (this.overZoomed && was) this.over.dist = clamp(this.over.dist * (this.overFit / was), this.overFit * 0.5, this.overFit * 2);
+    else this.over.dist = this.overFit;
+  }
+
   zoom(d) {
-    if (this.camMode) this.over.dist = clamp(this.over.dist * (1 + d), 25, 60);
-    else this.chase.dist = clamp(this.chase.dist * (1 + d), 4, 14);
+    if (this.camMode) {
+      this.over.dist = clamp(this.over.dist * (1 + d), this.overFit * 0.5, this.overFit * 2);
+      this.overZoomed = true;
+    } else this.chase.dist = clamp(this.chase.dist * (1 + d), 4, 14);
   }
 
   resetOrbit() {
     this.chase.yaw = this.chase.pitch = 0;
     this.over.yaw = this.over.pitch = 0;
     this.chase.dist = 9.6;
-    this.over.dist = 27;
+    this.overZoomed = false;
+    this.over.dist = this.overFit;
   }
 
   /** Debug hook for ?yaw=<degrees>. */
@@ -758,7 +807,8 @@ export class Renderer3D {
   /** Debug hook for ?dist=<units>. */
   setDistance(d) {
     this.chase.dist = clamp(d, 4, 14);
-    this.over.dist = clamp(d, 25, 60);
+    this.over.dist = clamp(d, this.overFit * 0.5, this.overFit * 2);
+    this.overZoomed = true;
   }
 
   toggleCamera() { this.camMode = this.camMode ? 0 : 1; return this.camMode; }
@@ -907,16 +957,24 @@ export class Renderer3D {
   setLawn(lawn) {
     this.lawn = lawn;
     this.buildBoard();
-    this.applyLawn();
+    this.reset();               // last year's popups and clippings are not this year's
+    this.fitOverview();         // a 54-week year needs the camera further back
     this.snapped = false;
     this.weatherMix = [0, 0, 0, 0];
     this.weatherMix[seasonIndexAt(lawn, lawn.mower.x)] = 1;
   }
 
   reset() {
-    for (const c of this.clippings) this.scene.remove(c);
+    for (const c of this.clippings) {
+      this.scene.remove(c);
+      if (c.userData.puff) c.material.dispose();   // puffs carry a cloned material
+    }
     this.clippings.length = 0;
-    for (const p of this.popups) this.scene.remove(p.sp);
+    for (const p of this.popups) {
+      this.scene.remove(p.sp);
+      p.sp.material.map.dispose();                 // every +N owns its own canvas
+      p.sp.material.dispose();
+    }
     this.popups.length = 0;
     this.applyLawn();
   }
@@ -1029,9 +1087,25 @@ export class Renderer3D {
   resize() {
     const w = this.canvas.clientWidth || 720;
     const h = this.canvas.clientHeight || 460;
+    this.sizedW = w;
+    this.sizedH = h;
+    // a new frame shape means a new framing: track it exactly rather than
+    // flying the camera to it, or a resize (and a headless screenshot, which
+    // runs only a few frames) catches the camera mid-flight
+    this.reframed = true;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.fitOverview();     // a narrower frame needs a longer lens on the year
+  }
+
+  /**
+   * The stage can change shape without a window resize: switching views, and
+   * the letterbox the overview puts on the canvas. Catch it on the frame.
+   */
+  checkSize() {
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    if (w && h && (w !== this.sizedW || h !== this.sizedH)) this.resize();
   }
 
   /** Weather is whatever season the mower is standing in, eased across the border. */
@@ -1162,6 +1236,7 @@ export class Renderer3D {
     const dt = this.lastTs ? Math.min(0.05, (ts - this.lastTs) / 1000) : 1 / 60;
     this.lastTs = ts;
     this.time += dt;
+    this.checkSize();
 
     if (!this.topColors) {
       this.topColors = SKY_TOP.map((h) => new THREE.Color(h));
@@ -1293,7 +1368,13 @@ export class Renderer3D {
     const cam = this.camera;
     // snap on the very first frame, otherwise a single-frame render (or a
     // headless screenshot) would show the camera still flying in
-    const s = this.snapped ? Math.min(1, dt * 4.5) : 1;
+    const s = this.snapped && !this.reframed ? Math.min(1, dt * 4.5) : 1;
+    this.reframed = false;
+
+    // the overview swaps to a longer lens as it blends in, so the far end of
+    // the year is drawn at nearly the size of the near end and reads as a grid
+    const fov = CHASE_FOV + (OVER_FOV - CHASE_FOV) * b;
+    if (Math.abs(cam.fov - fov) > 0.02) { cam.fov = fov; cam.updateProjectionMatrix(); }
     cam.position.x += (tx - cam.position.x) * s;
     cam.position.y += (ty - cam.position.y) * s;
     cam.position.z += (tz - cam.position.z) * s;
@@ -1305,8 +1386,8 @@ export class Renderer3D {
     const lx = this.wx(m.x) + Math.cos(m.angle) * ahead;
     const lz = this.wz(m.z) + Math.sin(m.angle) * ahead;
     this.lookAt.x += (lx + (0 - lx) * b - this.lookAt.x) * s;
-    this.lookAt.y += (1.95 + (6.5 - 1.95) * b - this.lookAt.y) * s;
-    this.lookAt.z += (lz + (0.4 - lz) * b - this.lookAt.z) * s;
+    this.lookAt.y += (1.95 + (OVER_LOOK_Y - 1.95) * b - this.lookAt.y) * s;
+    this.lookAt.z += (lz + (OVER_LOOK_Z - lz) * b - this.lookAt.z) * s;
     cam.lookAt(this.lookAt);
 
     this.updateWeather(dt, this.lookAt.x, this.lookAt.z, cam.position.y);
