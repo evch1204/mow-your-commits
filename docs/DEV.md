@@ -21,9 +21,11 @@ Two renderers share one model:
 - `src/loader.js` — the username form, its states, the `?user=` param, the token box.
 - `src/core/route.js` — `planRoute(lawn, seed)`: the one wandering drive that mows every
   grown day, as waypoints, a smoothed spline, and the arc length at which each cell is
-  cut. A greedy tour with a turn penalty, a sine weave down the rows and a backtracking
-  charge, so it curves across the year instead of sweeping it row by row. Only the
-  animated export uses it, but it is pure core: no DOM, no dependencies.
+  cut. A greedy tour with a turn penalty, a sine weave down the rows and a sliding
+  frontier window (only the leftmost few columns of standing lawn are in play), so it
+  curves across the year instead of sweeping it row by row, and cleans up as it goes
+  instead of leaving stragglers. Only the animated export uses it, but it is pure core:
+  no DOM, no dependencies.
 - `src/export/` — `lawnToSvg(lawn, opts)`, a pure function that draws the 2D board as SVG
   with the same geometry and palette. Used by the page's download buttons and by the
   GitHub Action. No DOM, no dependencies.

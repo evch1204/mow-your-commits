@@ -722,10 +722,19 @@ ok('the route is deterministic for a seed',
 ok('a different seed drives a different route',
   JSON.stringify(planRoute(svgLawn, 8).waypoints) !== JSON.stringify(route.waypoints));
 // long enough to cover a 7-row field with a 1.34-cell swath, short enough that
-// the greedy tour has not fallen apart into a scribble of back-tracking
-ok('the route is 1x to 3x the mowable count',
-  route.length > mowable.length && route.length < mowable.length * 3,
+// the frontier window is still holding: without it the greedy tour races to the
+// far end and doubles back, and the length runs away with it
+ok('the route is 1x to 2x the mowable count',
+  route.length > mowable.length && route.length < mowable.length * 2,
   `${route.length.toFixed(1)} for ${mowable.length}`);
+// the frontier is the whole point: nothing may be left standing behind the
+// mower for long, so the drive cuts at a steady rate rather than in bursts
+let ragged = 0;
+for (let k = 1; k <= 10; k++) {
+  const at = [...route.cuts.values()].filter((v) => v <= (k / 10) * route.length).length;
+  if (Math.abs(at / route.cuts.size - k / 10) > 0.12) ragged++;
+}
+ok('the route cuts at a steady rate down the year', ragged === 0, `${ragged} of 10 deciles`);
 ok('the route drives off the right edge',
   route.waypoints[route.waypoints.length - 1].x > svgLawn.cols,
   String(route.waypoints[route.waypoints.length - 1].x));

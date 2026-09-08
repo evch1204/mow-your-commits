@@ -7,27 +7,31 @@
 // picture we already had. So the cost function carries three extra terms — a
 // turn penalty, so the mower keeps its line; a sine wave down the rows that the
 // route is pulled toward, so it crosses the field in waves instead of sweeping
-// it; and a charge for backtracking, so the drive walks the year left to right
-// instead of scribbling over it. Tune these by looking at the animation.
+// it; and a sliding frontier window, so the drive cleans up as it goes and the
+// picture reads as cut lawn on the left, standing lawn on the right, with a
+// wandering boundary between. Tune these by looking at the animation.
 
 import { MOW_RADIUS, BLADE_OFFSET, rng } from './lawn.js';
 
 /** Cells per radian of turn: how much the mower dislikes swinging round. */
 const TURN_W = 1.15;
 /** How hard the weave pulls the next pick toward the wave. */
-const DRIFT_W = 1.6;
+const DRIFT_W = 1.2;
 /** A little noise, so the tour is not a lattice. */
-const JITTER = 1.1;
+const JITTER = 0.7;
 /**
- * Cells charged per cell of backtracking. Without it the greedy tour races to
- * the far end and then spends two thirds of the loop coming back for the days
- * it skipped, which reads as a scribble; with it the drive walks the year the
- * way you read it, weaving up and down as it goes.
+ * The frontier. A greedy tour left to itself races to the far end and then
+ * spends the rest of the loop coming back for the days it skipped, which reads
+ * as a scribble. So only the leftmost WINDOW cells of *unmowed* lawn are in
+ * play: anything past that is charged FRONT_W per cell, which is far more than
+ * any distance on this board, so the mower cannot leave stragglers behind and
+ * the frontier only advances once the window behind it is clean.
  */
-const BACK_W = 0.8;
+const FRONT_W = 4;
+const WINDOW = 2.5;
 /** The weave: rows either side of the middle, and its wavelength in cells. */
 const WAVE_A = 3.4;
-const WAVE_L = 3.2;
+const WAVE_L = 2.6;
 
 /** Marking cells mowed along a straight pick, in cells. */
 const MARK_STEP = 0.2;
@@ -89,10 +93,12 @@ export function planRoute(lawn, seed = 7) {
   waypoints.push({ x: cols + 2.5, z: last.z });
 
   // The smoothed curve bows away from the straight picks, so a cell the greedy
-  // pass thought it had covered can survive. Walk, patch, walk again.
+  // pass thought it had covered can survive. Walk, patch, walk again. Patching
+  // one cell can move the curve off another, so keep going: a route that misses
+  // a day leaves a tuft standing in somebody's README for a whole loop.
   let curve = beziers(waypoints);
   let walk = mowWalk(curve, targets, lawn);
-  for (let pass = 0; pass < 3 && walk.missed.length; pass++) {
+  for (let pass = 0; pass < 10 && walk.missed.length; pass++) {
     for (const m of walk.missed) insertCheapest(waypoints, m);
     curve = beziers(waypoints);
     walk = mowWalk(curve, targets, lawn);
@@ -116,6 +122,10 @@ function tour(targets, start, rows, phase, rnd) {
 
   while (n > 0) {
     const zWant = rows / 2 + WAVE_A * Math.sin(s / WAVE_L + phase);
+    // the frontier: the leftmost column of lawn still standing
+    let xMin = Infinity;
+    for (const c of left) if (!c.done && c.x < xMin) xMin = c.x;
+    const edge = xMin + WINDOW;
     let best = -1;
     let bestCost = Infinity;
     for (let k = 0; k < left.length; k++) {
@@ -125,7 +135,7 @@ function tour(targets, start, rows, phase, rnd) {
       const cost = d
         + TURN_W * Math.abs(turn(h, Math.atan2(c.z - p.z, c.x - p.x)))
         + DRIFT_W * Math.abs(c.z - zWant)
-        + BACK_W * Math.max(0, p.x - c.x)
+        + FRONT_W * Math.max(0, c.x - edge)
         + JITTER * rnd();
       if (cost < bestCost) { bestCost = cost; best = k; }
     }

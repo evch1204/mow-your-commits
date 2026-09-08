@@ -661,7 +661,7 @@ function dressing(lawn, theme, o, dots, seasonOf) {
 }
 
 /** The drive, in cells per second, and the pause parked off the right edge. */
-const SPEED = 7;
+const SPEED = 8;
 const HOLD = 1.6;
 /** How long a tuft takes to vanish once the blade reaches it, as a fraction. */
 const SNAP = 0.004;
@@ -701,7 +701,10 @@ function coverGroup(lawn, theme, o, route, timing, seasonOf) {
     tuft(bag, dots, over, x, y, grown, season, theme, o, 1);
     // keyTimes has to be strictly increasing and end at exactly 1, so neither
     // key may reach it: the last cell is cut a hair before the drive ends.
-    const s = route.cuts.get(i) || 0;
+    // a cell the planner somehow never reached is cut last rather than first:
+    // a tuft that outlives the drive is a visible bug, one that vanishes at
+    // t=0 is an invisible one
+    const s = route.cuts.has(i) ? route.cuts.get(i) : route.length;
     const t = Math.min(timing.drive, Math.max(0.0002, (s / route.length) * timing.drive));
     const t2 = Math.min(t + SNAP, (1 + t) / 2);
     groups.push('<g>'
