@@ -16,11 +16,12 @@ inputs:
   outputs:
     description: >-
       one per line, path relative to the workspace plus options as a query
-      string: theme=dark, animate=1, year=2025, mowed=0..1 or as-is, mower=0
+      string: theme=dark, animate=1, year=2025, mowed=0..1 or as-is, mower=0,
+      weather=0 for no seasons, bg=0 for a transparent background
     required: false
     default: |
-      dist/lawn.svg
-      dist/lawn-dark.svg?theme=dark
+      dist/lawn.svg?animate=1
+      dist/lawn-dark.svg?theme=dark&animate=1
 
 runs:
   using: composite

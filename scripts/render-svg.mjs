@@ -24,7 +24,7 @@ const UA = 'mow-your-commits';
 // --- args -----------------------------------------------------------------
 
 function parseArgs(argv) {
-  const out = { outputs: 'dist/lawn.svg\ndist/lawn-dark.svg?theme=dark' };
+  const out = { outputs: 'dist/lawn.svg?animate=1\ndist/lawn-dark.svg?theme=dark&animate=1' };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--demo') out.demo = true;
@@ -50,6 +50,9 @@ function parseOutput(line) {
   if (q.has('theme')) opts.theme = q.get('theme');
   if (q.has('animate')) opts.animate = q.get('animate') !== '0';
   if (q.has('mower')) opts.mower = q.get('mower') !== '0';
+  // the plain chart: no seasons, no paper behind it
+  if (q.has('weather')) opts.weather = q.get('weather') !== '0';
+  if (q.has('bg')) opts.background = q.get('bg') !== '0';
   if (q.has('caption')) {
     const c = q.get('caption');
     opts.caption = c === '' || c === '0' ? null : c;

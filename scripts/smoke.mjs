@@ -6,8 +6,9 @@ import {
   gridForYear, layoutYear, placeMower, isoDay,
 } from '../src/core/lawn.js';
 import {
-  GRASS, grassFor, tileColor, bladeColor, hexToRgb, mix, SEASON_TINT, DANDELION,
+  GRASS, grassFor, tileColor, bladeColor, hexToRgb, mix, SEASON_TINT, DANDELION, GITHUB,
 } from '../src/core/palette.js';
+import { planRoute } from '../src/core/route.js';
 import { lawnToSvg, GEOM } from '../src/export/svg.js';
 import { THEMES } from '../src/export/themes.js';
 import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
@@ -708,16 +709,47 @@ ok('caption names the total',
     + ' contributions in the last year<'), String(svgLawn.totalContributions));
 ok('a user prefixes the caption',
   lawnToSvg(svgLawn, { user: 'torvalds' }).includes('>@torvalds - '));
+// --- the route the animated mower drives ----------------------------------
+
+const route = planRoute(svgLawn, 7);
+const mowable = svgLawn.cells.filter((c) => !c.void && c.level > 0);
+ok('the route cuts every grown day', route.cuts.size === mowable.length,
+  `${route.cuts.size} of ${mowable.length}`);
+ok('the route never claims to cut bare dirt',
+  [...route.cuts.keys()].every((i) => !svgLawn.cells[i].void && svgLawn.cells[i].level > 0));
+ok('the route is deterministic for a seed',
+  JSON.stringify(planRoute(svgLawn, 7).waypoints) === JSON.stringify(route.waypoints));
+ok('a different seed drives a different route',
+  JSON.stringify(planRoute(svgLawn, 8).waypoints) !== JSON.stringify(route.waypoints));
+// long enough to cover a 7-row field with a 1.34-cell swath, short enough that
+// the greedy tour has not fallen apart into a scribble of back-tracking
+ok('the route is 1x to 3x the mowable count',
+  route.length > mowable.length && route.length < mowable.length * 3,
+  `${route.length.toFixed(1)} for ${mowable.length}`);
+ok('the route drives off the right edge',
+  route.waypoints[route.waypoints.length - 1].x > svgLawn.cols,
+  String(route.waypoints[route.waypoints.length - 1].x));
+ok('the route starts off the left edge', route.waypoints[0].x < 0);
+// the whole point of the weave: a greedy tour on 7 rows otherwise settles into
+// one row after another, which is the row-by-row loop this replaced
+let sameRow = 0;
+for (let i = 1; i < route.waypoints.length; i++) {
+  if (Math.floor(route.waypoints[i].z) === Math.floor(route.waypoints[i - 1].z)) sameRow++;
+}
+ok('the route weaves rather than sweeping rows',
+  sameRow * 2 < route.waypoints.length - 1,
+  `${sameRow} of ${route.waypoints.length - 1}`);
+ok('planning never touches the lawn', JSON.stringify(svgLawn) === before);
+
 const animSvg = lawnToSvg(svgLawn, { animate: true });
-ok('animate drives the mower', animSvg.includes('<animateTransform'));
+ok('animate drives the mower along the route', animSvg.includes('<animateMotion'));
 ok('animate loops forever', animSvg.includes('repeatCount="indefinite"'));
 ok('the still animates nothing', !svg.includes('<animate'));
-const animRow = Math.floor(Math.round(0.5 * svgLawn.cols * ROWS) / svgLawn.cols);
-ok('one regrowing cover per grown cell of the mowed row',
-  (animSvg.match(/<animate attributeName="opacity"/g) || []).length
-    === svgLawn.cells.filter((c) => c.row === animRow && !c.void && c.level > 0).length);
+ok('one regrowing cover per grown cell of the whole year',
+  (animSvg.match(/<animate attributeName="opacity"/g) || []).length === mowable.length,
+  `${(animSvg.match(/<animate attributeName="opacity"/g) || []).length} vs ${mowable.length}`);
 // SMIL drops a whole <animate> whose keyTimes are not strictly increasing, and
-// the last column's t is only 0.5/cols short of 1, so this is easy to get wrong.
+// the last cell is cut a hair before the drive ends, so this is easy to get wrong.
 let smilOk = true;
 let smilWhy = '';
 for (const el of animSvg.matchAll(/<animate\s([^>]*)\/>/g)) {
@@ -733,14 +765,48 @@ for (const el of animSvg.matchAll(/<animate\s([^>]*)\/>/g)) {
   if (!smilOk) break;
 }
 ok('every keyTimes is 0..1, strictly increasing, and matches values', smilOk, smilWhy);
-ok('the last column still fades before the loop ends',
-  animSvg.includes(`keyTimes="0;${((svgLawn.cols - 0.5) / svgLawn.cols).toFixed(4)};`));
-
+// keyPoints and keyTimes have to agree in count under calcMode="linear", and
+// the drive has to end before the loop does or there is no pause to regrow in
+const motion = /<animateMotion\s([^>]*)\/>/.exec(animSvg)[1];
+const kp = /keyPoints="([^"]*)"/.exec(motion)[1].split(';').map(Number);
+const kts = /keyTimes="([^"]*)"/.exec(motion)[1].split(';').map(Number);
+ok('animateMotion keyPoints and keyTimes line up',
+  kp.length === kts.length && kp[0] === 0 && kp[kp.length - 1] === 1
+  && kts[0] === 0 && kts[kts.length - 1] === 1 && kts[1] > 0 && kts[1] < 1,
+  motion.slice(0, 120));
+ok('the motion path is relative to the parked mower', /path="M0 0C/.test(motion));
+ok('the driven group carries no transform of its own',
+  // animateMotion's matrix wraps around the element's own transform, so a
+  // translate here would be swung about the page origin by rotate="auto"
+  /<g id="mower" transform="translate\([^"]*\)"><g><animateMotion/.test(animSvg));
 ok('animate is deterministic', lawnToSvg(svgLawn, { animate: true }) === animSvg);
 ok('animate still loads nothing external',
   !/https?:\/\//.test(animSvg.replace(/xmlns="[^"]*"/, '')));
-ok('a fully mowed lawn has nothing to animate',
-  !lawnToSvg(svgLawn, { animate: true, mowed: 1 }).includes('<animateTransform'));
+ok('animate ignores mowed: the loop always starts fully grown',
+  lawnToSvg(svgLawn, { animate: true, mowed: 1 }) === animSvg);
+// the covers cannot batch by colour, so the animated file is much bigger
+ok('the animated svg stays under 450 kB', animSvg.length < 450000, `${animSvg.length}`);
+
+// --- weather=0 and bg=0: the plain chart ----------------------------------
+
+const plain = lawnToSvg(svgLawn, { weather: false, background: false });
+ok('plain drops the season doodles', !plain.includes('id="glyphs"'));
+ok('plain drops the frost caps', !plain.includes('id="frost"'));
+ok('plain drops snow and flakes', !plain.includes('#85B7EB'));
+ok('plain drops the fallen leaves', !plain.includes('rx="2.6" ry="1.6"'));
+ok('plain is GitHub\'s exact ramp', [1, 2, 3, 4].every((l) => plain.includes(GITHUB[l])),
+  [1, 2, 3, 4].map((l) => plain.includes(GITHUB[l])).join(','));
+ok('a lawn with weather is tinted, not the exact ramp',
+  [1, 2, 3, 4].every((l) => !svg.includes(GITHUB[l])));
+ok('plain lays one neutral bed', (/<g id="bed"[^>]*>((?:(?!<\/g>).)*)/.exec(plain)[1]
+  .match(/<rect/g) || []).length === 2);
+ok('plain keeps the dandelions: they are data, not weather', plain.includes(DANDELION));
+ok('bg=0 leaves the background transparent', !plain.includes('<rect width="100%"'));
+ok('bg=0 drops the paper halo on the day labels', !plain.includes(`stroke="${THEMES.light.paper}"`));
+ok('the paper is back when only the weather is off',
+  lawnToSvg(svgLawn, { weather: false }).includes('<rect width="100%"'));
+ok('plain is deterministic',
+  lawnToSvg(svgLawn, { weather: false, background: false }) === plain);
 
 // --- the login that comes off the URL -------------------------------------
 // share.js has no sanitiser of its own: parseUserInput (tested above) is the

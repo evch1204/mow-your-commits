@@ -8,9 +8,12 @@
 // the site. Only GEOM and SPREAD mirror numbers render2d owns; re-sync them
 // together when render2d moves.
 
-import { MONTH_NAMES, SEASON_GLYPH, SEASON_OF_MONTH, seasonIndexOfCol } from '../core/lawn.js';
 import {
-  AUTUMN_BLADE, FLOWERS, ORANGE, CREAM, SUN, PETAL, DANDELION, FLUFF,
+  MONTH_NAMES, SEASON_GLYPH, SEASON_OF_MONTH, seasonIndexOfCol, rng,
+} from '../core/lawn.js';
+import { planRoute } from '../core/route.js';
+import {
+  AUTUMN_BLADE, FLOWERS, ORANGE, CREAM, SUN, PETAL, DANDELION, FLUFF, NO_SEASON,
   grassFor, cellTint, tileColor, bladeColor, mix, stripe,
 } from '../core/palette.js';
 import { themeFor } from './themes.js';
@@ -82,15 +85,6 @@ function commas(n) {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-/** The same 16807 LCG render2d uses, so blades jitter the same way. */
-function rng(seed) {
-  let s = (Math.abs(Math.floor(seed)) % 2147483646) + 1;
-  return function () {
-    s = (s * 16807) % 2147483647;
-    return (s - 1) / 2147483646;
-  };
-}
-
 /** render2d's hash(), used for the per-tile doodle rotation. */
 function hash(n) {
   const x = Math.sin(n * 12.9898) * 43758.5453;
@@ -147,10 +141,14 @@ function normalize(lawn, opts) {
     frac,
     seed: o.seed == null ? 7 : Number(o.seed),
     animate: !!o.animate,
+    // both default on: the picture is a doodle lawn first, a chart second
+    weather: o.weather === undefined ? true : !!o.weather,
+    background: o.background === undefined ? true : !!o.background,
     user: o.user || '',
     caption: o.caption === null ? null
       : (o.caption ? String(o.caption) : defaultCaption(lawn, o.user || '')),
-    mower: o.mower === undefined ? progress > 0 : !!o.mower,
+    // the animation is the mower driving, so it is never parked off the picture
+    mower: o.animate ? true : (o.mower === undefined ? progress > 0 : !!o.mower),
   };
 }
 
@@ -354,14 +352,19 @@ function mowerGroup(theme, inner) {
  * Render a lawn as a standalone SVG document string.
  *
  * @param lawn  from createLawn(); never mutated.
- * @param opts  {theme, mowed, mower, animate, caption, user, seed}
- *   theme    'light' (default) | 'dark'
- *   mowed    'as-is' to use cell.mowed, or a 0..1 fraction (default 0.5)
- *   mower    draw the mower (default: whenever anything is mowed)
- *   animate  SMIL: the mower drives the half-mowed row on an 8 s loop
- *   caption  string, or null for none (default: "<n> contributions in <when>")
- *   user     github login, prefixes the caption with "@user - "
- *   seed     jitter seed for the blades (default 7)
+ * @param opts  {theme, mowed, mower, animate, weather, background, caption, user, seed}
+ *   theme      'light' (default) | 'dark'
+ *   mowed      'as-is' to use cell.mowed, or a 0..1 fraction (default 0.5).
+ *              Ignored under `animate`: the loop always starts fully grown.
+ *   mower      draw the mower (default: whenever anything is mowed)
+ *   animate    SMIL: the mower drives the whole year on a wandering route,
+ *              then the lawn regrows and the loop restarts
+ *   weather    seasons: glyphs, frost, flakes, leaves, flowers, the climate bed
+ *              and the season tint on the greens. Off gives GitHub's exact ramp.
+ *   background draw the paper rectangle behind everything (off = transparent)
+ *   caption    string, or null for none (default: "<n> contributions in <when>")
+ *   user       github login, prefixes the caption with "@user - "
+ *   seed       jitter seed for the blades and the route (default 7)
  */
 export function lawnToSvg(lawn, opts) {
   const o = normalize(lawn, opts);
@@ -371,16 +374,18 @@ export function lawnToSvg(lawn, opts) {
   const W = GEOM.OX + cols * PITCH + GEOM.PAD_R;
   const H = GEOM.OY + rows * PITCH + GEOM.PAD_B;
   const gw = cols * PITCH - GAP;
+  // seasons are what `weather=0` switches off, so every season index in the
+  // picture comes through here and nothing else has to know about the flag
+  const seasonOf = (col) => (o.weather ? seasonIndexOfCol(lawn, col) : NO_SEASON);
 
-  // The animated loop mows one row over and over, so that row is drawn cut and
-  // gets a regrowing overlay on top. -1 when there is nothing to animate.
-  const animRow = o.animate && !o.asIs && o.k > 0 && o.k < cols * rows
-    ? Math.floor(o.k / cols) : -1;
+  // The animated loop mows the whole year, so every grown day is drawn cut and
+  // gets an overgrown cover on top that fades when the mower reaches it.
+  const route = o.animate && lawn.mowable > 0 ? planRoute(lawn, o.seed) : null;
 
   // Which cells read as mowed in this picture. Never touches the lawn.
   for (const c of lawn.cells) {
     c.mowedX = c.void || c.level === 0 ? true
-      : c.row === animRow ? true
+      : route ? true
         : o.asIs ? !!c.mowed
           : (c.row * cols + c.col) < o.k;
   }
@@ -388,7 +393,7 @@ export function lawnToSvg(lawn, opts) {
   const parts = [];
 
   // 1. paper
-  parts.push(`<rect width="100%" height="100%" fill="${theme.paper}"/>`);
+  if (o.background) parts.push(`<rect width="100%" height="100%" fill="${theme.paper}"/>`);
 
   // 2. caption
   if (o.caption) {
@@ -407,14 +412,14 @@ export function lawnToSvg(lawn, opts) {
     const lx = tileX(ms.col);
     months.push(`<text x="${n2(lx)}" y="${n2(OY + GEOM.MONTH_DY)}">${name}</text>`);
     const sn = SEASON_OF_MONTH[ms.month];
-    if (sn !== lastSeason) {
+    if (o.weather && sn !== lastSeason) {
       glyphs.push(seasonGlyph(lx + name.length * GEOM.MONTH_SIZE * 0.42 + 12,
         OY + GEOM.GLYPH_DY, sn, theme));
       lastSeason = sn;
     }
   }
   parts.push(`<g id="months" font-size="${GEOM.MONTH_SIZE}" fill="${theme.pencil}">${months.join('')}</g>`);
-  parts.push(`<g id="glyphs">${glyphs.join('')}</g>`);
+  if (glyphs.length) parts.push(`<g id="glyphs">${glyphs.join('')}</g>`);
 
   // 4. fence ticks + the rule they hang from
   const fence = [];
@@ -427,7 +432,7 @@ export function lawnToSvg(lawn, opts) {
     + ` stroke-width="${GEOM.FENCE_W}"/>`);
 
   // 5. dirt bed under the tiles, coloured by the climate of each column
-  parts.push(bed(lawn, theme, gw, rows));
+  parts.push(bed(lawn, theme, gw, rows, o.weather));
 
   // 6. tiles
   const tiles = [];
@@ -435,7 +440,7 @@ export function lawnToSvg(lawn, opts) {
   const cuts = [];
   for (const c of lawn.cells) {
     if (c.void) continue;
-    const season = seasonIndexOfCol(lawn, c.col);
+    const season = seasonOf(c.col);
     const x = tileX(c.col);
     const y = tileY(c.row);
     tiles.push(tileRect(c, x, y, season, theme, c.mowedX));
@@ -458,32 +463,42 @@ export function lawnToSvg(lawn, opts) {
   const over = new Map();
   for (const c of lawn.cells) {
     if (c.void || !c.level) continue;
-    tuft(bag, dots, over, tileX(c.col), tileY(c.row), c, seasonIndexOfCol(lawn, c.col), theme, o, 1);
+    tuft(bag, dots, over, tileX(c.col), tileY(c.row), c, seasonOf(c.col), theme, o, 1);
   }
   parts.push(strokes('grass', bag));
 
   // 8. dressing: pebbles on bare dirt, snowflakes, leaves, dandelion heads,
   //    then the ink that sits on top of them (disc outlines, seed-head ticks)
-  parts.push(`<g id="dressing">${dressing(lawn, theme, o, dots)}</g>`);
+  parts.push(`<g id="dressing">${dressing(lawn, theme, o, dots, seasonOf)}</g>`);
   if (over.size) parts.push(strokes('ink', over));
 
-  // 8b. the regrowing overlay the animated mower cuts away, frame by frame
-  if (animRow >= 0) parts.push(coverGroup(lawn, theme, o, animRow, cols));
+  // 8b. the overgrown lawn the animated mower cuts away, cell by cell
+  const timing = route ? loopTiming(route.length) : null;
+  if (route) parts.push(coverGroup(lawn, theme, o, route, timing, seasonOf));
 
-  // 9. mower. When animating, the outer <g> is the one that drives: it carries
-  // the still position as a plain transform (so a renderer that ignores SMIL
-  // still gets the primary picture) and an animateTransform that overrides it.
+  // 9. mower. The outer <g> parks it: the still position, or the start of the
+  // route, which is also the fallback for anything that ignores SMIL.
   if (o.mower) {
-    const m = mowerAt(lawn, o, cols, rows);
-    const inner = `<g transform="rotate(${n2(m.deg)}) scale(${GEOM.MOWER_SCALE})">`
-      + mowerGroup(theme, '') + `</g>`;
-    const drive = animRow >= 0
-      ? `<animateTransform attributeName="transform" type="translate"`
-        + ` from="${n2(px(0))} ${n2(py(animRow + 0.5))}"`
-        + ` to="${n2(px(cols))} ${n2(py(animRow + 0.5))}"`
-        + ` dur="${LOOP}s" repeatCount="indefinite"/>`
-      : '';
-    parts.push(`<g id="mower" transform="translate(${n2(m.x)},${n2(m.y)})">${drive}${inner}</g>`);
+    const m = route ? routeStart(route) : mowerAt(lawn, o, cols, rows);
+    // under animateMotion the heading comes from rotate="auto", so the art
+    // group carries the scale and nothing else
+    const art = `<g transform="${route ? '' : `rotate(${n2(m.deg)}) `}`
+      + `scale(${GEOM.MOWER_SCALE})">` + mowerGroup(theme, '') + `</g>`;
+    if (!route) {
+      parts.push(`<g id="mower" transform="translate(${n2(m.x)},${n2(m.y)})">${art}</g>`);
+    } else {
+      // animateMotion's matrix wraps *around* the element's own transform, so
+      // rotate="auto" would swing the parked translate about the page origin.
+      // The driven <g> therefore owns no transform: its parent parks it, the
+      // path is relative to that, and rotate="auto" turns it in place. Right,
+      // because the mower art faces +x. keyPoints holds it off the right edge
+      // for the last stretch of the loop: the pause before everything regrows.
+      const drive = `<animateMotion dur="${n2(timing.dur)}s" repeatCount="indefinite"`
+        + ` rotate="auto" calcMode="linear" keyPoints="0;1;1"`
+        + ` keyTimes="0;${timing.drive};1" path="${motionPath(route, m)}"/>`;
+      parts.push(`<g id="mower" transform="translate(${n2(m.x)},${n2(m.y)})">`
+        + `<g>${drive}${art}</g></g>`);
+    }
   }
 
   // 10. Mon / Wed / Fri, with a paper halo so nothing can hide them
@@ -491,14 +506,18 @@ export function lawnToSvg(lawn, opts) {
     const y = tileY(1 + i * 2) + CELL / 2 + 1 + GEOM.LABEL_SIZE * 0.35;
     return `<text x="${GEOM.LABEL_X}" y="${n2(y)}">${d}</text>`;
   });
+  // no paper means nothing to halo against, so the stroke goes with it
+  const halo = o.background
+    ? ` stroke="${theme.paper}" stroke-width="4" paint-order="stroke"` : '';
   parts.push(`<g id="labels" font-size="${GEOM.LABEL_SIZE}" fill="${theme.pencil}"`
-    + ` stroke="${theme.paper}" stroke-width="4" paint-order="stroke">${labels.join('')}</g>`);
+    + `${halo}>${labels.join('')}</g>`);
 
   // 11. legend
   parts.push(legend(lawn, theme, o));
 
   const label = (o.caption || defaultCaption(lawn, o.user))
-    + ' - a GitHub contribution graph drawn as a half-mowed lawn';
+    + (route ? ' - a GitHub contribution graph drawn as a lawn being mowed'
+      : ' - a GitHub contribution graph drawn as a half-mowed lawn');
   const head = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}"`
     + ` width="${W}" height="${H}" role="img" aria-label="${esc(label)}">`
     + `<title>${esc(o.caption || label)}</title>`
@@ -515,19 +534,25 @@ export function lawnToSvg(lawn, opts) {
  * winter columns, warm brown under summer, blending one column either side of
  * a season change. Port of render2d's drawBed().
  */
-function bed(lawn, theme, gw, rows) {
+function bed(lawn, theme, gw, rows, weather) {
   const bi = GEOM.BED_INSET;
   const x0 = OX - bi, y0 = OY - bi;
   const w = gw + bi * 2, h = rows * PITCH - GAP + bi * 2;
   const soil = (sn) => mix(theme.soil[sn], theme.paper, 0.58);
   const bands = [];
-  for (let c = 0; c < lawn.cols; c++) {
-    const sn = seasonIndexOfCol(lawn, c);
-    const prev = seasonIndexOfCol(lawn, Math.max(0, c - 1));
-    const bx = c === 0 ? x0 : tileX(c) - GAP / 2;
-    const bw = (c === lawn.cols - 1 ? x0 + w : tileX(c + 1) - GAP / 2) - bx;
-    bands.push(`<rect x="${n2(bx)}" y="${n2(y0)}" width="${n2(bw)}" height="${n2(h)}"`
-      + ` fill="${prev === sn ? soil(sn) : mix(soil(prev), soil(sn), 0.5)}"/>`);
+  if (!weather) {
+    // no weather means no climate: one neutral bed, the summer soil
+    bands.push(`<rect x="${n2(x0)}" y="${n2(y0)}" width="${n2(w)}" height="${n2(h)}"`
+      + ` fill="${soil(2)}"/>`);
+  } else {
+    for (let c = 0; c < lawn.cols; c++) {
+      const sn = seasonIndexOfCol(lawn, c);
+      const prev = seasonIndexOfCol(lawn, Math.max(0, c - 1));
+      const bx = c === 0 ? x0 : tileX(c) - GAP / 2;
+      const bw = (c === lawn.cols - 1 ? x0 + w : tileX(c + 1) - GAP / 2) - bx;
+      bands.push(`<rect x="${n2(bx)}" y="${n2(y0)}" width="${n2(bw)}" height="${n2(h)}"`
+        + ` fill="${prev === sn ? soil(sn) : mix(soil(prev), soil(sn), 0.5)}"/>`);
+    }
   }
   const round = `<rect x="${n2(x0)}" y="${n2(y0)}" width="${n2(w)}" height="${n2(h)}"`
     + ` rx="${GEOM.BED_R}"`;
@@ -599,7 +624,7 @@ function frostCap(cell, x, y, season, mowed) {
 }
 
 /** Pebbles on bare dirt + the seasonal dressing render2d scatters on level 0. */
-function dressing(lawn, theme, o, dots) {
+function dressing(lawn, theme, o, dots, seasonOf) {
   const out = [];
   const pebbles = [];
   const flakes = [];
@@ -613,7 +638,7 @@ function dressing(lawn, theme, o, dots) {
       for (let p = 0; p < 2; p++) {
         pebbles.push(circleD(x + 4 + rnd() * 8, y + 5 + rnd() * 7, 0.9));
       }
-      const s = seasonIndexOfCol(lawn, c.col);
+      const s = seasonOf(c.col);
       if ((s === 0 || s === 3) && (c.col * 7 + c.row * 3) % 5 === 0) {
         const cx = x + CELL / 2;
         const cy = y + CELL / 2;
@@ -635,21 +660,35 @@ function dressing(lawn, theme, o, dots) {
   return out.join('');
 }
 
-/** One pass of the animated mower, seconds. */
-const LOOP = 8;
+/** The drive, in cells per second, and the pause parked off the right edge. */
+const SPEED = 7;
+const HOLD = 1.6;
+/** How long a tuft takes to vanish once the blade reaches it, as a fraction. */
+const SNAP = 0.004;
 
 /**
- * The animated row is drawn cut; this puts the overgrown version back on top of
- * it and fades each cell out at the moment the mower reaches that column. At
- * t=0 the whole row is grown again, so the loop reads as "regrow, mow, repeat".
- * Static opacity matches the still, for anything that ignores SMIL.
+ * One loop: drive the whole route, then hold off the edge while the year
+ * regrows. `drive` is where the driving ends, as a fraction of the loop, and
+ * is the last key of every animation in the picture.
  */
-function coverGroup(lawn, theme, o, row, cols) {
-  const at = o.k % cols;
+function loopTiming(length) {
+  const dur = length / SPEED + HOLD;
+  return { dur, drive: Number(((length / SPEED) / dur).toFixed(4)) };
+}
+
+/**
+ * Every grown day is drawn cut underneath; this puts the overgrown version back
+ * on top of it and fades each one out at the arc length where the route's blade
+ * reaches it. At t=0 the whole year is grown, so the loop reads as
+ * "regrow, mow, repeat". Static opacity is 1: a renderer that ignores SMIL gets
+ * the uncut lawn, which is the honest still of an animation that starts there.
+ */
+function coverGroup(lawn, theme, o, route, timing, seasonOf) {
   const groups = [];
-  for (const c of lawn.cells) {
-    if (c.row !== row || c.void || c.level === 0) continue;
-    const season = seasonIndexOfCol(lawn, c.col);
+  for (let i = 0; i < lawn.cells.length; i++) {
+    const c = lawn.cells[i];
+    if (c.void || c.level === 0) continue;
+    const season = seasonOf(c.col);
     const x = tileX(c.col);
     const y = tileY(c.row);
     const bag = new Map();
@@ -660,12 +699,12 @@ function coverGroup(lawn, theme, o, row, cols) {
       vigor: c.vigor || 0, heroic: c.heroic,
     };
     tuft(bag, dots, over, x, y, grown, season, theme, o, 1);
-    // keyTimes has to be strictly increasing and end at exactly 1, so the snap
-    // that follows t never reaches 1 itself: on the last column t is already
-    // 1 - 0.5/cols and a flat +0.01 would collide with the final key.
-    const t = (c.col + 0.5) / cols;
-    const t2 = Math.min(t + 0.01, (1 + t) / 2);
-    groups.push(`<g opacity="${c.col < at ? 0 : 1}">`
+    // keyTimes has to be strictly increasing and end at exactly 1, so neither
+    // key may reach it: the last cell is cut a hair before the drive ends.
+    const s = route.cuts.get(i) || 0;
+    const t = Math.min(timing.drive, Math.max(0.0002, (s / route.length) * timing.drive));
+    const t2 = Math.min(t + SNAP, (1 + t) / 2);
+    groups.push('<g>'
       + tileRect(c, x, y, season, theme, false)
       + frostCap(c, x, y, season, false)
       + strokes('', bag)
@@ -673,9 +712,36 @@ function coverGroup(lawn, theme, o, row, cols) {
       + strokes('', over)
       + `<animate attributeName="opacity" values="1;1;0;0"`
       + ` keyTimes="0;${t.toFixed(4)};${t2.toFixed(4)};1"`
-      + ` dur="${LOOP}s" repeatCount="indefinite"/></g>`);
+      + ` dur="${n2(timing.dur)}s" repeatCount="indefinite"/></g>`);
   }
   return `<g id="cover">${groups.join('')}</g>`;
+}
+
+/** Where the route begins, in page pixels + the heading it starts on. */
+function routeStart(route) {
+  const a = route.path[0];
+  const b = route.path[Math.min(route.path.length - 1, 1)];
+  return {
+    x: px(a.x),
+    y: py(a.z),
+    deg: (Math.atan2(b.z - a.z, b.x - a.x) * 180) / Math.PI,
+  };
+}
+
+/**
+ * The route as one `M0 0 C ...` path in page pixels, relative to the start:
+ * animateMotion composes with the `transform` on the same element, so the
+ * static translate doubles as the fallback position and the path must not
+ * repeat it. One cubic per span, straight out of the planner.
+ */
+function motionPath(route, start) {
+  const X = (x) => n2(px(x) - start.x);
+  const Y = (z) => n2(py(z) - start.y);
+  const out = ['M0 0'];
+  for (const sp of route.curve) {
+    out.push(`C${X(sp.c1.x)} ${Y(sp.c1.z)} ${X(sp.c2.x)} ${Y(sp.c2.z)} ${X(sp.b.x)} ${Y(sp.b.z)}`);
+  }
+  return out.join('');
 }
 
 /** Where the mower parks, in page pixels + degrees. */
@@ -702,6 +768,8 @@ function legend(lawn, theme, o) {
   const dots = new Map();
   const over = new Map();
   const tiles = [];
+  // the key follows the same rule as the board: summer green, or no season
+  const season = o.weather ? 2 : NO_SEASON;
   for (let l = 0; l <= 4; l++) {
     const x = x0 + l * PITCH;
     // level 0 shows mowed, so the key opens on the bare tile the graph uses
@@ -709,8 +777,8 @@ function legend(lawn, theme, o) {
       col: l, row: 0, level: l, count: 0, void: false,
       vigor: 0.5, heroic: false, mowed: l === 0, mowedX: l === 0,
     };
-    tiles.push(tileRect(fake, x, y, 2, theme, l === 0));
-    tuft(bag, dots, over, x, y, fake, 2, theme, o, GEOM.LEGEND_SCALE);
+    tiles.push(tileRect(fake, x, y, season, theme, l === 0));
+    tuft(bag, dots, over, x, y, fake, season, theme, o, GEOM.LEGEND_SCALE);
   }
   const text = (x, anchor, str) =>
     `<text x="${n2(x)}" y="${n2(midY)}" text-anchor="${anchor}"`

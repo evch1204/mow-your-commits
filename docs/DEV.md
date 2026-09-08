@@ -19,6 +19,11 @@ Two renderers share one model:
   fog, hills, trees that change with the season, a sun that climbs in summer and sits low
   in winter, and weather that follows the mower.
 - `src/loader.js` — the username form, its states, the `?user=` param, the token box.
+- `src/core/route.js` — `planRoute(lawn, seed)`: the one wandering drive that mows every
+  grown day, as waypoints, a smoothed spline, and the arc length at which each cell is
+  cut. A greedy tour with a turn penalty, a sine weave down the rows and a backtracking
+  charge, so it curves across the year instead of sweeping it row by row. Only the
+  animated export uses it, but it is pure core: no DOM, no dependencies.
 - `src/export/` — `lawnToSvg(lawn, opts)`, a pure function that draws the 2D board as SVG
   with the same geometry and palette. Used by the page's download buttons and by the
   GitHub Action. No DOM, no dependencies.
@@ -39,9 +44,9 @@ npm run build                              # dist/ uses relative paths (GitHub P
 node scripts/smoke.mjs                     # pure-node assertions over sim, data, export
 node scripts/smoke.mjs --live torvalds     # also hits the real contributions API
 
-node scripts/render-svg.mjs --demo --outputs "docs/lawn.svg
-docs/lawn-dark.svg?theme=dark"             # the README pictures
-node scripts/render-svg.mjs --user torvalds --outputs "out/lawn.svg?animate=1"
+node scripts/render-svg.mjs --demo --outputs "docs/lawn.svg?animate=1
+docs/lawn-dark.svg?theme=dark&animate=1"   # the README pictures
+node scripts/render-svg.mjs --user torvalds --outputs "out/plain.svg?weather=0&bg=0"
 ```
 
 ## URL flags
@@ -101,7 +106,10 @@ that is the demo lawn. It stays on screen while a real one loads and after any f
 `action.yml` at the repo root is a composite action. It fetches the calendar through
 GitHub's GraphQL API with the default action token, falls back to the public mirror, and
 renders through the same `src/core` + `src/export` code the site uses, so the README
-picture is the board on the page. Details and every option: [`action/README.md`](../action/README.md).
+picture is the board on the page. Its default outputs carry `animate=1`, so the picture
+that lands in a profile is the mower driving the year; `weather=0&bg=0` goes the other
+way and gives a plain transparent chart in GitHub's own greens. Details and every
+option: [`action/README.md`](../action/README.md).
 
 ## Screenshots
 
@@ -119,9 +127,30 @@ about phone width. For a real 390px shot, point it at a local file holding
 `<iframe width="390" height="844" src="http://localhost:4173/?view=flat">` and use
 `--window-size=500,844`.
 
+**An exact frame of the animated SVG.** `--virtual-time-budget` does advance SMIL, but not
+to a time you can name. Inline the SVG in a scratch HTML file (an `<img>` or `fetch` from
+`file://` will not do) and drive the clock yourself:
+
+```html
+<script>
+const s = document.querySelector("svg");
+s.pauseAnimations();
+s.setCurrentTime(parseFloat(location.hash.slice(1)) || 0);
+</script>
+```
+
+```
+chrome --headless=new --disable-gpu --hide-scrollbars --window-size=1100,320 \
+  --virtual-time-budget=2000 --screenshot=t20.png "file:///.../harness.html#20"
+```
+
+Shoot t = 0 (nothing cut), a third, two thirds, one second before the drive ends
+(everything cut, mower leaving) and inside the hold (mower off-frame). The loop length is
+in the `dur` of the `<animateMotion>`, and the drive ends at its second `keyTimes` value.
+
 ## Ideas
 
-- [ ] the animated README lawn mows the whole year, row by row, like the snake
+- [x] the animated README lawn mows the whole year, on a wandering route
 - [ ] a hosted image URL (`/lawn.svg?user=`) for a one-line README embed
 - [ ] hand-drawn tuft and mower textures instead of procedural strokes
 - [ ] extension: content script that swaps `.js-calendar-graph` for the lawn

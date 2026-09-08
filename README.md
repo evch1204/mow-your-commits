@@ -21,7 +21,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/lawn-dark.svg">
-    <img alt="a GitHub contribution graph drawn as a half-mowed doodle lawn" src="docs/lawn.svg">
+    <img alt="a GitHub contribution graph drawn as a doodle lawn, with a mower cutting its way across the year" src="docs/lawn.svg">
   </picture>
 </p>
 
@@ -72,8 +72,8 @@ jobs:
         with:
           github_user_name: ${{ github.repository_owner }}
           outputs: |
-            dist/lawn.svg
-            dist/lawn-dark.svg?theme=dark
+            dist/lawn.svg?animate=1
+            dist/lawn-dark.svg?theme=dark&animate=1
 
       - uses: crazy-max/ghaction-github-pages@v4
         with: { target_branch: output, build_dir: dist }
@@ -92,13 +92,17 @@ jobs:
 
 The site's **copy workflow** and **copy markdown** buttons fill in your username for you.
 
-Want it to move? Add `?animate=1` to an output line and the mower drives the half-mowed
-row on a loop, like the snake. Every option, one per output line:
+The workflow above ships `?animate=1`, so the mower wanders the whole year, drives off
+the right edge and the lawn regrows. Drop it for a still, half-mowed board. Just want the
+graph? `?weather=0&bg=0` gives GitHub's exact greens on a transparent background, with no
+seasons. Every option, one per output line:
 
 | option | values | what it does |
 | --- | --- | --- |
 | `theme` | `light`, `dark` | GitHub's dark ramp on `#0D1117` |
-| `animate` | `1` | the mower mows the row on an 8 s loop |
+| `animate` | `1` | the mower mows the whole year on a wandering route, then it regrows (`mowed` is ignored) |
+| `weather` | `0` | no seasons: no doodles, frost, leaves or blossom, and GitHub's exact greens |
+| `bg` | `0` | no paper behind the board: a transparent picture |
 | `year` | `2025` | a calendar year instead of the rolling 52 weeks |
 | `mowed` | `0`..`1`, `as-is` | how much is already cut (default `0.5`) |
 | `mower` | `0` | park the mower off the picture |

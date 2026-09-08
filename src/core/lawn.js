@@ -42,11 +42,27 @@ const ACCEL = 0.015;
 const REVERSE = 0.009;
 const DRAG = 0.92;
 const TURN = 0.052;
-const MOW_RADIUS = 0.67;   // distance from blade center that counts
-const BLADE_OFFSET = 0.55; // blade sits this far ahead of mower center
+export const MOW_RADIUS = 0.67;   // distance from blade center that counts
+export const BLADE_OFFSET = 0.55; // blade sits this far ahead of mower center
 const MOW_ANIM = 0.25;     // seconds for one cell's mow animation
 
 export const DEFAULT_SEED = 20260904;
+
+// --- shared randomness ----------------------------------------------------
+
+/**
+ * The 16807 LCG every doodle jitters through: render2d, the SVG exporter and
+ * the route planner all draw from it, so a blade that leans left on the canvas
+ * leans left in the README picture too. Lives here because `src/core` is the
+ * only thing the exporter and the renderers both import.
+ */
+export function rng(seed) {
+  let s = (Math.abs(Math.floor(seed)) % 2147483646) + 1;
+  return function () {
+    s = (s * 16807) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+}
 
 // --- grids ---------------------------------------------------------------
 

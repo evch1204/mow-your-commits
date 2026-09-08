@@ -80,8 +80,8 @@ jobs:
         with:
           github_user_name: \${{ github.repository_owner }}
           outputs: |
-            dist/lawn.svg
-            dist/lawn-dark.svg?theme=dark
+            dist/lawn.svg?animate=1
+            dist/lawn-dark.svg?theme=dark&animate=1
 
       - uses: crazy-max/ghaction-github-pages@v4
         with: { target_branch: output, build_dir: dist }
