@@ -8,6 +8,7 @@ import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
 import {
   parseUserInput, normaliseApi, clampLevel, GithubError,
   fetchContributions, readCache, writeCache, CACHE_TTL, STALE_OK, MAX_CACHED,
+  normaliseGraphql, fetchViaGraphql, GQL_LEVEL, TOKEN_PREFIX,
 } from '../src/core/github.js';
 import { readFileSync } from 'node:fs';
 
@@ -413,6 +414,103 @@ ok('a quota error clears the lawns and keeps the new one',
 ok('no storage is not an error',
   readCache('torvalds', T0, null) === null
     && writeCache('torvalds', fetched, T0, null) === false);
+
+// --- github.js: the optional token path -----------------------------------
+// graphql-year.json is a GitHub GraphQL calendar response: a rolling window
+// plus y2026 (two weeks straddling TODAY, with all five level enums) and y2025.
+
+const gq = normaliseGraphql(fixture('graphql-year'), TODAY);
+
+ok('normaliseGraphql flattens the weeks and sorts them',
+  gq.days.every((d, i) => i === 0 || gq.days[i - 1].date <= d.date) && gq.days.length > 0);
+ok('normaliseGraphql reads the aliased years',
+  gq.years.join(',') === '2026,2025', gq.years.join(','));
+ok('normaliseGraphql keeps GitHub\'s own totals',
+  gq.totals[2026] > 0 && gq.totals[2025] > 0);
+ok('normaliseGraphql drops days after today', !gq.days.some((d) => d.date > TODAY));
+ok('normaliseGraphql returns the rolling window separately',
+  Array.isArray(gq.last) && gq.last.length > 0);
+
+const seen = new Set(gq.days.map((d) => d.level));
+ok('all five contributionLevel enums map to 0..4',
+  [0, 1, 2, 3, 4].every((l) => seen.has(l)), [...seen].sort().join(','));
+ok('the enum table is the documented one',
+  GQL_LEVEL.NONE === 0 && GQL_LEVEL.FIRST_QUARTILE === 1 && GQL_LEVEL.FOURTH_QUARTILE === 4);
+ok('graphql levels agree with their counts',
+  gq.days.every((d) => d.level === clampLevel(d.level, d.count)));
+
+throwsKind('normaliseGraphql({}) is malformed', 'malformed', () => normaliseGraphql({}));
+throwsKind('normaliseGraphql(no user) is malformed', 'malformed',
+  () => normaliseGraphql({ data: { user: null } }));
+throwsKind('normaliseGraphql(no calendars) is malformed', 'malformed',
+  () => normaliseGraphql({ data: { user: { somethingElse: 1 } } }));
+
+/** A fetch that answers the year query, then every calendar query. */
+let gqCalls = 0;
+let gqAuthOk = true;
+function fakeGraphql(steps) {
+  let n = 0;
+  return async (url, init) => {
+    const body = JSON.parse(init.body);
+    gqCalls++;
+    if (init.headers.authorization !== 'bearer github_pat_test'
+      || !url.endsWith('/graphql') || init.method !== 'POST') gqAuthOk = false;
+    const step = steps[Math.min(n, steps.length - 1)];
+    n++;
+    if (typeof step === 'function') return step(body);
+    return { ok: step.status >= 200 && step.status < 300, status: step.status, json: async () => step.body };
+  };
+}
+
+const years2 = { data: { user: { contributionsCollection: { contributionYears: [2026, 2025] } } } };
+const viaToken = await fetchViaGraphql('torvalds', 'github_pat_test', {
+  today: TODAY,
+  fetch: fakeGraphql([{ status: 200, body: years2 }, { status: 200, body: fixture('graphql-year') }]),
+});
+ok('fetchViaGraphql builds the same shape as the public path',
+  viaToken.login === 'torvalds' && viaToken.years.join(',') === '2026,2025'
+    && viaToken.days.length > 0 && Array.isArray(viaToken.last) && viaToken.fetchedAt > 0);
+ok('fetchViaGraphql fills a total for every year',
+  viaToken.years.every((y) => typeof viaToken.totals[y] === 'number'));
+
+const q = [];
+await fetchViaGraphql('torvalds', 'github_pat_test', {
+  today: TODAY,
+  fetch: fakeGraphql([
+    { status: 200, body: { data: { user: { contributionsCollection: { contributionYears: [
+      2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013] } } } } },
+    (body) => { q.push(body.query); return { ok: true, status: 200, json: async () => fixture('graphql-year') }; },
+  ]),
+});
+ok('fourteen years are asked for in two batches of at most twelve', q.length === 2, String(q.length));
+ok('only the first batch asks for the rolling window',
+  q[0].includes('last: contributionsCollection') && !q[1].includes('last: contributionsCollection'));
+ok('the first batch asks for twelve years',
+  (q[0].match(/y\d{4}: contributionsCollection\(/g) || []).length === 12);
+
+ok('401 is a token error',
+  await kindOf(() => fetchViaGraphql('torvalds', 'github_pat_test', {
+    fetch: fakeGraphql([{ status: 401 }]) })) === 'token');
+ok('403 is ratelimited',
+  await kindOf(() => fetchViaGraphql('torvalds', 'github_pat_test', {
+    fetch: fakeGraphql([{ status: 403 }]) })) === 'ratelimited');
+ok('a NOT_FOUND error is notfound',
+  await kindOf(() => fetchViaGraphql('nobody', 'github_pat_test', {
+    fetch: fakeGraphql([{ status: 200, body: { errors: [{ type: 'NOT_FOUND', message: 'x' }] } }]) })) === 'notfound');
+ok('a RATE_LIMITED error is ratelimited',
+  await kindOf(() => fetchViaGraphql('torvalds', 'github_pat_test', {
+    fetch: fakeGraphql([{ status: 200, body: { errors: [{ type: 'RATE_LIMITED', message: 'x' }] } }]) })) === 'ratelimited');
+ok('a dead api.github.com is network',
+  await kindOf(() => fetchViaGraphql('torvalds', 'github_pat_test', {
+    fetch: async () => { throw new TypeError('Failed to fetch'); } })) === 'network');
+ok('no token at all is a token error',
+  await kindOf(() => fetchViaGraphql('torvalds', '', { fetch: async () => { throw new Error('never'); } })) === 'token');
+
+ok('every graphql request is a POST to api.github.com with the token',
+  gqCalls > 0 && gqAuthOk, gqCalls + ' calls');
+ok('token shapes are recognised',
+  TOKEN_PREFIX.test('github_pat_11ABC') && TOKEN_PREFIX.test('ghp_abc')
+    && !TOKEN_PREFIX.test('hunter2') && !TOKEN_PREFIX.test('  ghp_abc'));
 
 // --- optional: hit the real API -------------------------------------------
 //   node scripts/smoke.mjs --live torvalds

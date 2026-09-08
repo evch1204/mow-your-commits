@@ -247,3 +247,155 @@ export function clearCache(storage = defaultStorage()) {
   if (!storage) return;
   try { for (const k of cacheKeys(storage)) storage.removeItem(k); } catch { /* ignore */ }
 }
+
+// --- the optional token path ----------------------------------------------
+// A fine-grained PAT with no permissions reads public calendars straight from
+// GitHub; the token owner's own calendar also carries private contributions,
+// which is the whole point. Cost is 1 point per request of the 5,000/h budget.
+// api.github.com allows Authorization from any origin, so no proxy is needed.
+
+export const GRAPHQL = 'https://api.github.com/graphql';
+
+/** The shapes GitHub hands out. Classic, fine-grained, OAuth and app tokens. */
+export const TOKEN_PREFIX = /^(ghp_|github_pat_|gho_|ghu_|ghs_|ghr_)/;
+
+export const GQL_LEVEL = {
+  NONE: 0, FIRST_QUARTILE: 1, SECOND_QUARTILE: 2, THIRD_QUARTILE: 3, FOURTH_QUARTILE: 4,
+};
+
+const CAL = 'contributionCalendar { totalContributions weeks'
+  + ' { contributionDays { date contributionCount contributionLevel } } }';
+
+const Q_YEARS = 'query Years($login: String!)'
+  + ' { user(login: $login) { contributionsCollection { contributionYears } } }';
+
+/** One aliased contributionsCollection per year, plus GitHub's rolling window. */
+function calQuery(years, withLast) {
+  const parts = [];
+  if (withLast) parts.push('last: contributionsCollection { ' + CAL + ' }');
+  for (const y of years) {
+    parts.push('y' + y + ': contributionsCollection(from: "' + y + '-01-01T00:00:00Z"'
+      + ', to: "' + y + '-12-31T23:59:59Z") { ' + CAL + ' }');
+  }
+  return 'query Cal($login: String!) { user(login: $login) { ' + parts.join(' ') + ' } }';
+}
+
+function sortDays(days) {
+  days.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return days;
+}
+
+function calendarDays(node, today) {
+  const weeks = node && node.contributionCalendar && node.contributionCalendar.weeks;
+  if (!Array.isArray(weeks)) return null;
+  const days = [];
+  for (const w of weeks) {
+    for (const d of (w && w.contributionDays) || []) {
+      if (!d || typeof d.date !== 'string' || !d.date) continue;
+      if (today && d.date > today) continue;
+      const count = Number(d.contributionCount) > 0 ? Math.round(Number(d.contributionCount)) : 0;
+      const lvl = GQL_LEVEL[d.contributionLevel];
+      days.push({ date: d.date, count, level: clampLevel(lvl === undefined ? 1 : lvl, count) });
+    }
+  }
+  return sortDays(days);
+}
+
+/**
+ * A GraphQL calendar response -> the same { days, years, totals, last } the
+ * public API path produces. `last:` is the rolling window; `y2025:` and friends
+ * are calendar years.
+ */
+export function normaliseGraphql(json, today = null) {
+  const user = json && json.data && json.data.user;
+  if (!user || typeof user !== 'object') {
+    throw new GithubError('malformed', 'unexpected GraphQL payload');
+  }
+  const totals = {};
+  const years = [];
+  let days = [];
+  let last = null;
+  for (const key of Object.keys(user)) {
+    if (key === 'last') { last = calendarDays(user[key], today); continue; }
+    const m = /^y(\d{4})$/.exec(key);
+    if (!m) continue;
+    const block = calendarDays(user[key], today);
+    if (!block) continue;
+    const y = Number(m[1]);
+    years.push(y);
+    totals[y] = Number(user[key].contributionCalendar.totalContributions) || 0;
+    days = days.concat(block);
+  }
+  if (!years.length && !last) throw new GithubError('malformed', 'no calendars in the response');
+  years.sort((a, b) => b - a);
+  return { days: sortDays(days), years, totals, last };
+}
+
+async function graphql(query, login, token, doFetch, signal) {
+  let res;
+  try {
+    res = await doFetch(GRAPHQL, {
+      method: 'POST',
+      headers: { authorization: 'bearer ' + token, 'content-type': 'application/json' },
+      body: JSON.stringify({ query, variables: { login } }),
+      signal: signal || (typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+        ? AbortSignal.timeout(TIMEOUT)
+        : undefined),
+    });
+  } catch (err) {
+    throw new GithubError('network', 'could not reach api.github.com', { cause: err });
+  }
+  if (res.status === 401) throw new GithubError('token', 'GitHub rejected that token');
+  if (res.status === 403) throw new GithubError('ratelimited', 'GitHub says slow down');
+  if (!res.ok) throw mapStatus(res.status);
+
+  let json;
+  try {
+    json = await res.json();
+  } catch (err) {
+    throw new GithubError('malformed', 'api.github.com sent non-JSON', { cause: err });
+  }
+  if (json && Array.isArray(json.errors) && json.errors.length) {
+    const types = json.errors.map((e) => e && e.type);
+    if (types.includes('NOT_FOUND')) throw new GithubError('notfound', 'no such GitHub user');
+    if (types.includes('RATE_LIMITED')) throw new GithubError('ratelimited', 'GitHub says slow down');
+    if (types.includes('FORBIDDEN')) throw new GithubError('token', 'that token is not allowed to read this');
+    throw new GithubError('malformed', (json.errors[0] && json.errors[0].message) || 'GraphQL error');
+  }
+  return json;
+}
+
+/**
+ * The whole history through GitHub's own API. One request for the year list,
+ * then one per batch of 12 years (plus the rolling window on the first).
+ * @returns {Promise<{login, days, years, totals, last, fetchedAt}>}
+ */
+export async function fetchViaGraphql(login, token, opts = {}) {
+  if (!token) throw new GithubError('token', 'no token saved');
+  const doFetch = opts.fetch || globalThis.fetch;
+  const today = opts.today || null;
+
+  const yjson = await graphql(Q_YEARS, login, token, doFetch, opts.signal);
+  const raw = yjson && yjson.data && yjson.data.user
+    && yjson.data.user.contributionsCollection
+    && yjson.data.user.contributionsCollection.contributionYears;
+  if (!Array.isArray(raw)) throw new GithubError('malformed', 'no year list in the response');
+
+  const years = raw.map(Number).filter(Number.isInteger).sort((a, b) => b - a);
+  const out = { login, days: [], years, totals: {}, last: null, fetchedAt: Date.now() };
+
+  const batches = [];
+  for (let i = 0; i < years.length; i += 12) batches.push(years.slice(i, i + 12));
+  if (!batches.length) batches.push([]);
+
+  for (let i = 0; i < batches.length; i++) {
+    const json = await graphql(calQuery(batches[i], i === 0), login, token, doFetch, opts.signal);
+    const part = normaliseGraphql(json, today);
+    out.days = out.days.concat(part.days);
+    Object.assign(out.totals, part.totals);
+    if (part.last) out.last = part.last;
+  }
+  for (const y of years) if (out.totals[y] === undefined) out.totals[y] = 0;
+  sortDays(out.days);
+  return out;
+}

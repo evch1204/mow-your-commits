@@ -3,9 +3,14 @@
 // the DOM; src/core/github.js stays pure.
 
 import {
-  parseUserInput, fetchContributions, readCache, writeCache,
+  parseUserInput, fetchContributions, fetchViaGraphql, readCache, writeCache,
+  TOKEN_PREFIX,
 } from './core/github.js';
 import { isoDay } from './core/lawn.js';
+
+// The optional token lives here and nowhere else: not in the URL, not on any
+// server of ours, not in the status line. "forget" deletes it.
+const TOKEN_KEY = 'mow:gh:token';
 
 const DEMO_LINE = 'demo lawn (not yours) \u00b7 type a username to mow your own';
 const TITLE = 'mow your commits';
@@ -28,6 +33,43 @@ export function setStatus(state, text) {
 function busy(on) {
   els.load.disabled = on;
   els.load.textContent = on ? 'fetching' : 'mow it';
+}
+
+function readToken() {
+  try { return (localStorage.getItem(TOKEN_KEY) || '').trim() || null; } catch { return null; }
+}
+
+function storeToken(value) {
+  try {
+    if (value) localStorage.setItem(TOKEN_KEY, value);
+    else localStorage.removeItem(TOKEN_KEY);
+    return true;
+  } catch { return false; }
+}
+
+/** Reflect whether a token is saved. The token itself is never shown. */
+function paintToken() {
+  const has = !!readToken();
+  els.forget.hidden = !has;
+  els.tokenSummary.textContent = has ? 'token saved (or paste a token)' : 'or paste a token';
+}
+
+/**
+ * With a token, ask GitHub itself (private contributions included, no shared
+ * rate limit). If GitHub is merely unreachable or busy, fall back to the
+ * public mirror; a rejected token is the visitor's problem, so it is raised.
+ */
+async function fetchFor(login, today) {
+  const token = readToken();
+  if (token) {
+    try {
+      return await fetchViaGraphql(login, token, { today });
+    } catch (err) {
+      if (err && (err.kind === 'token' || err.kind === 'notfound')) throw err;
+      return await fetchContributions(login, { today });
+    }
+  }
+  return fetchContributions(login, { today });
 }
 
 function possessive(name) {
@@ -122,7 +164,7 @@ export async function loadUser(raw, { fromUrl = false } = {}) {
   }
 
   try {
-    const data = await fetchContributions(login, { today: isoDay(new Date()) });
+    const data = await fetchFor(login, isoDay(new Date()));
     if (mine !== seq) return null;
     writeCache(login, data);
     done();
@@ -166,6 +208,10 @@ export function initLoader(next = {}) {
     demo: $('demo'),
     status: $('loadstate'),
     tokenbox: $('tokenbox'),
+    tokenSummary: $('tokenbox').querySelector('summary'),
+    token: $('token'),
+    save: $('savetoken'),
+    forget: $('forgettoken'),
   };
   if (!els.form) return;
   hooks = { onData: next.onData || (() => {}), onDemo: next.onDemo || (() => {}) };
@@ -177,7 +223,6 @@ export function initLoader(next = {}) {
     history.replaceState(null, '', here);
   }
 
-  els.tokenbox.hidden = true;           // wired up in the next commit
   document.body.dataset.source = 'demo';
   setStatus('idle', DEMO_LINE);
 
@@ -186,4 +231,28 @@ export function initLoader(next = {}) {
     loadUser(els.user.value);
   });
   els.demo.addEventListener('click', backToDemo);
+
+  paintToken();
+  els.save.addEventListener('click', () => {
+    const value = els.token.value.trim();
+    if (!value) { setStatus('error', 'paste a token first'); return; }
+    if (!TOKEN_PREFIX.test(value)) {
+      setStatus('error', "that isn't a GitHub token (they start with github_pat_ or ghp_)");
+      return;
+    }
+    els.token.value = '';
+    if (!storeToken(value)) {
+      setStatus('error', 'this browser will not let the page store the token');
+      return;
+    }
+    paintToken();
+    setStatus('ok', 'token saved in this browser - it goes only to api.github.com');
+    if (loaded) loadUser(loaded);
+  });
+  els.forget.addEventListener('click', () => {
+    els.token.value = '';
+    storeToken(null);
+    paintToken();
+    setStatus('idle', 'token forgotten');
+  });
 }
