@@ -2,15 +2,15 @@
 // Action) and in the browser (the download buttons and the live preview).
 //
 // This is a port of src/render2d's drawTile / drawGrass / mower, so the picture
-// in a README and the board on the site are the same drawing. Colours are not
-// duplicated here at all: palette.js runs every rule (tileColor, bladeColor,
-// cellTint, grassFor) on the theme's own ramp, so light and dark both follow
-// the site. Only GEOM and SPREAD mirror numbers render2d owns; re-sync them
-// together when render2d moves.
+// in a README and the board on the site are the same drawing. Nothing shared is
+// duplicated here: src/core/board.js owns the geometry, and palette.js runs
+// every colour rule (tileColor, bladeColor, cellTint, grassFor) on the theme's
+// own ramp, so light and dark both follow the site.
 
 import {
-  MONTH_NAMES, SEASON_GLYPH, SEASON_OF_MONTH, seasonIndexOfCol, rng,
+  MONTH_NAMES, SEASON_GLYPH, SEASON_OF_MONTH, seasonIndexOfCol, periodLabel, rng, hash,
 } from '../core/lawn.js';
+import { GEOM, SPREAD } from '../core/board.js';
 import { planRoute } from '../core/route.js';
 import {
   AUTUMN_BLADE, FLOWERS, ORANGE, CREAM, SUN, PETAL, DANDELION, FLUFF, NO_SEASON,
@@ -18,52 +18,6 @@ import {
 } from '../core/palette.js';
 import { themeFor } from './themes.js';
 import { PATRICK_HAND_WOFF2_B64, FONT_STACK } from './font.js';
-
-/** Every coordinate render2d owns. Mirror of src/render2d/index.js. */
-export const GEOM = {
-  CELL: 16,
-  GAP: 3,
-  PITCH: 19,
-  R: 3,
-  OX: 58,
-  OY: 60,
-  PAD_R: 22,
-  PAD_B: 70,
-  // header
-  CAPTION_X: 58,
-  CAPTION_Y: 22,
-  CAPTION_SIZE: 16,
-  MONTH_SIZE: 16,
-  MONTH_DY: -22,
-  GLYPH_DY: -27,
-  // fence above the grid
-  FENCE_STEP: 14,
-  FENCE_TOP: -16,
-  FENCE_BOT: -9,
-  FENCE_RULE: -12,
-  FENCE_W: 1.1,
-  // dirt bed
-  BED_INSET: 5,
-  BED_R: 8,
-  BED_W: 1.8,
-  // Mon / Wed / Fri
-  LABEL_X: 8,
-  LABEL_SIZE: 15,
-  // legend: five swatches (bare + four greens), right-aligned to the bed
-  LEGEND_DY: 30,
-  LEGEND_SIZE: 16,
-  LEGEND_GAP: 26,
-  LEGEND_MORE_W: 35,   // Patrick Hand 16px, measured once; only affects spacing
-  LEGEND_SCALE: 1.3,
-  // mower
-  MOWER_SCALE: 1.25,
-};
-
-/**
- * The grass grammar lives in palette.js (`GRASS` / `grassFor`) and is shared
- * with both renderers; only the horizontal spread is a render2d number.
- */
-export const SPREAD = (level) => (level >= 3 ? GEOM.CELL * 0.7 : GEOM.CELL * 0.44);
 
 const { CELL, GAP, PITCH, OX, OY } = GEOM;
 
@@ -85,12 +39,6 @@ function commas(n) {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-/** render2d's hash(), used for the per-tile doodle rotation. */
-function hash(n) {
-  const x = Math.sin(n * 12.9898) * 43758.5453;
-  return x - Math.floor(x);
-}
-
 function circleD(cx, cy, r) {
   return `M${n2(cx - r)} ${n2(cy)}a${n2(r)} ${n2(r)} 0 1 0 ${n2(r * 2)} 0`
     + `a${n2(r)} ${n2(r)} 0 1 0 ${n2(-r * 2)} 0Z`;
@@ -108,16 +56,11 @@ function boxD(x, y, w, h, r) {
     + `V${n2(y + r)}A${n2(r)} ${n2(r)} 0 0 1 ${n2(x + r)} ${n2(y)}Z`;
 }
 
-// --- theme-aware colour rules ------------------------------------------
-// No formulas live here: palette.js runs them, on the theme's own ramp, so the
-// exported picture follows the site in light and in dark.
-
 // --- options --------------------------------------------------------------
 
 function defaultCaption(lawn, user) {
-  const when = lawn.year == null ? 'in the last year' : 'in ' + lawn.year;
   const head = user ? '@' + user + ' - ' : '';
-  return head + commas(lawn.totalContributions) + ' contributions ' + when;
+  return head + commas(lawn.totalContributions) + ' contributions ' + periodLabel(lawn);
 }
 
 function normalize(lawn, opts) {

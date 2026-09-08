@@ -2,20 +2,19 @@ import * as THREE from 'three';
 import {
   ROWS, MAX_COLS, MONTH_NAMES, seasonIndexOfCol, seasonIndexAt,
 } from '../core/lawn.js';
+import { CLIP_MAX, FONT, POPUP_MERGE, clippingCount } from '../core/effects.js';
 import {
-  INK, CREAM, DIRT, AUTUMN_BLADE, DANDELION, PETAL, ORANGE, GRASS,
+  INK, CREAM, DIRT, AUTUMN_BLADE, DANDELION, PETAL, ORANGE,
   SKY_TOP, SKY_HORIZON, MEADOW_BY_SEASON, SUN_LIGHT,
-  tileColor, stripe, bladeColor, clipColor, cellTint, shade,
+  tileColor, stripe, bladeColor, clipColor, cellTint, grassFor, shade,
 } from '../core/palette.js';
 
-const FONT = "'Patrick Hand', cursive";
 const SLOTS = MAX_COLS * ROWS;
 
 // Four tuft builds so a level-4 week is a hedge and a level-1 week is sprouts.
 const TUFT_BLADES = [3, 5, 8, 12];
 const TUFT_HEIGHT = [0.35, 0.6, 0.9, 1.25];
 const MOWED_SCALE = 0.18;
-const CLIP_MAX = 260;          // flying clippings alive at once
 const LEAF_N = 44;             // leaves in autumn, blossom in spring
 
 // Hemisphere light tint per season: cool in winter, warm in summer.
@@ -919,8 +918,7 @@ export class Renderer3D {
       const mesh = this.grass[c.level - 1];
       const slot = this.slotOf[i];
       const v = c.vigor || 0;
-      const span = GRASS.tuftY[c.level];
-      const ys = this.cellScaleY(c) * (span[0] + (span[1] - span[0]) * v);
+      const ys = this.cellScaleY(c) * grassFor(c.level, v).tuftY;
       const xz = (0.85 + 0.3 * v)
         * (1 + Math.sin(Math.PI * Math.min(1, c.mowT)) * (c.mowed ? 0.22 : 0));
       d.position.set(this.wx(c.col + 0.5), 0.14, this.wz(c.row + 0.5));
@@ -1060,7 +1058,7 @@ export class Renderer3D {
       this.cutAt.set(i, this.time);
       this.setCell(i);
       const mat = this.clipMat(clipColor(c.level, season));
-      const n = 3 + 2 * c.level + (c.heroic ? 6 : 0);
+      const n = clippingCount(c);
       for (let k = 0; k < n; k++) {
         const cm = new THREE.Mesh(this.clipGeo, mat);
         cm.position.copy(chute);
@@ -1074,9 +1072,6 @@ export class Renderer3D {
         this.clippings.push(cm);
       }
     }
-    // clippings only age inside draw(), and the view you are not looking at
-    // never draws: without a cap a lawn mowed in flat view would hand the 3D
-    // scene a few thousand cubes the moment you switch to it
     if (this.clippings.length > CLIP_MAX) {
       for (const c of this.clippings.splice(0, this.clippings.length - CLIP_MAX)) {
         this.scene.remove(c);
@@ -1102,9 +1097,8 @@ export class Renderer3D {
 
   /** A bigger day gets a bigger number; the best days get an exclamation. */
   spawnPopup(n, heroic) {
-    // a burst of tiny cuts reads as one find, not a stack of labels
     const last = this.popups[this.popups.length - 1];
-    if (last && last.age < 0.25) {
+    if (last && last.age < POPUP_MERGE) {
       last.n += n;
       last.heroic = last.heroic || heroic;
       last.sp.material.map.dispose();

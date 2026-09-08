@@ -7,8 +7,10 @@ Everything that is not needed to play or to put the lawn in a README.
 Two renderers share one model:
 
 - `src/core/` — the lawn itself. Cells, mower physics, mowing detection, seasons,
-  temperature by month, the shared palette and the `GRASS`/`grassFor` blade grammar both
-  renderers draw from. No DOM, no rendering, no dependencies.
+  temperature by month, the shared palette, the flat board's geometry (`board.js`) and the
+  `GRASS`/`grassFor` blade grammar. The 2D canvas and the SVG exporter draw the grammar
+  in full; the 3D renderer takes only `tuftY` from it and carries its own tuft builds.
+  No DOM, no rendering, no dependencies.
 - `src/render2d/` — hand-drawn canvas at the proportions of the real graph: 52x7 rounded
   tiles on a dirt bed whose colour follows the climate of each column, month labels with a
   season doodle, Mon/Wed/Fri down the left, legend bottom right. The whole year's weather

@@ -50,19 +50,35 @@ export const DEFAULT_SEED = 20260904;
 
 // --- shared randomness ----------------------------------------------------
 
+/** The Lehmer modulus, 2^31 - 1. */
+const LCG_MOD = 2147483647;
+
+/** One step of the LCG below, for a caller that keeps its own state. */
+export function lcgStep(s, mult = 16807) { return (s * mult) % LCG_MOD; }
+
+/** An LCG state read as a float in [0, 1). */
+export function lcgFloat(s) { return (s - 1) / (LCG_MOD - 1); }
+
 /**
- * The 16807 LCG. The SVG exporter and the route planner both draw from this
- * one; render2d runs the same sequence from its own inline copy, which is why
- * a blade that leans left on the canvas leans left in the README picture too.
- * It lives in `src/core` because that is the only code the exporter and the
- * renderers both import.
+ * The Lehmer LCG everything random in this project runs on. The SVG exporter,
+ * the route planner and the fake year all take a stream from here, which is
+ * why a blade that leans left on the canvas leans left in the README picture
+ * too. render2d re-seeds per tile per frame, so it keeps its own state and
+ * steps it with `lcgStep` rather than allocating a stream per tile.
+ * @param mult 16807 for the shared jitter stream, 48271 for the fake year.
  */
-export function rng(seed) {
-  let s = (Math.abs(Math.floor(seed)) % 2147483646) + 1;
+export function rng(seed, mult = 16807) {
+  let s = (Math.abs(Math.floor(seed)) % (LCG_MOD - 1)) + 1;
   return function () {
-    s = (s * 16807) % 2147483647;
-    return (s - 1) / 2147483646;
+    s = lcgStep(s, mult);
+    return lcgFloat(s);
   };
+}
+
+/** Stable per-column noise, so a patch of grass leans as one. */
+export function hash(n) {
+  const x = Math.sin(n * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
 }
 
 // --- grids ---------------------------------------------------------------
@@ -133,7 +149,7 @@ export function layoutYear(days, year) {
  */
 export function createLawn(data, opts = {}) {
   const seed = opts.seed == null ? DEFAULT_SEED : opts.seed;
-  const year = opts.year == null ? null : opts.year;
+  const year = opts.year ?? null;
   const days = data || generateFakeData(seed, year);
   const rows = ROWS;
   const cols = Math.max(1, Math.round(days.length / rows));
@@ -165,7 +181,7 @@ export function createLawn(data, opts = {}) {
       const day = days[col * rows + row];
       const isVoid = !day || day.void || !day.date;
       const level = isVoid ? 0 : Math.max(0, Math.min(4, day.level));
-      cells.push({
+      const cell = {
         col, row, level,
         void: isVoid,
         date: isVoid ? null : day.date,
@@ -174,10 +190,11 @@ export function createLawn(data, opts = {}) {
         mowed: true,
         mowT: 1,
         rot: hash(col * 31 + row * 7) * 3,
-      });
+      };
+      cells.push(cell);
       if (!isVoid && level > 0) {
-        cells[cells.length - 1].mowed = false;
-        cells[cells.length - 1].mowT = 0;
+        cell.mowed = false;
+        cell.mowT = 0;
         mowable++;
       }
     }
@@ -387,14 +404,6 @@ export function formatTime(sec) {
 
 // --- fake data ----------------------------------------------------------
 
-function lcg(seed) {
-  let s = (Math.abs(Math.floor(seed)) % 2147483646) + 1;
-  return function () {
-    s = (s * 48271) % 2147483647;
-    return (s - 1) / 2147483646;
-  };
-}
-
 /**
  * A deterministic year that looks like a real developer's graph:
  * weekday-heavy, a sparse January, a few multi-week streaks,
@@ -404,7 +413,7 @@ function lcg(seed) {
 export function generateFakeData(seed = DEFAULT_SEED, year = null) {
   const grid = year == null ? gridForRolling() : gridForYear(year);
   const cols = grid.cols;
-  const rnd = lcg(year == null ? seed : ((seed ^ (year * 2654435761)) >>> 0));
+  const rnd = rng(year == null ? seed : ((seed ^ (year * 2654435761)) >>> 0), 48271);
 
   // Per-week activity level.
   const week = new Array(cols);
@@ -459,9 +468,4 @@ export function assignLevels(days) {
     d.level = c === 0 ? 0 : c <= q1 ? 1 : c <= q2 ? 2 : c <= q3 ? 3 : 4;
   }
   return days;
-}
-
-function hash(n) {
-  const x = Math.sin(n * 12.9898) * 43758.5453;
-  return x - Math.floor(x);
 }

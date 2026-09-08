@@ -163,6 +163,6 @@ export function bladeColor(level, season = 2, ramp = LIGHT_RAMP) {
 }
 
 /** Clipping / particle colour for a level. */
-export function clipColor(level, season = 2) {
-  return mix(levelGreen(Math.max(1, level), season), '#FFFFFF', 0.15);
+export function clipColor(level, season = 2, ramp = LIGHT_RAMP) {
+  return mix(levelGreen(Math.max(1, level), season, ramp), '#FFFFFF', 0.15);
 }

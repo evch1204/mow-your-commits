@@ -1,27 +1,18 @@
-import { MONTH_NAMES, SEASON_GLYPH, SEASON_OF_MONTH, seasonIndexOfCol, describeCell } from '../core/lawn.js';
+import {
+  MONTH_NAMES, SEASON_GLYPH, SEASON_OF_MONTH, seasonIndexOfCol, describeCell,
+  hash, lcgStep, lcgFloat,
+} from '../core/lawn.js';
+import { GEOM, SPREAD } from '../core/board.js';
+import { CLIP_MAX, FONT, POPUP_MERGE, clippingCount } from '../core/effects.js';
 import {
   INK, PAPER, CREAM, ORANGE, PENCIL, SUN, AUTUMN_BLADE, FLOWERS,
   DANDELION, FLUFF, DIRT_BY_SEASON, PETAL,
   tileColor, stripe, bladeColor, clipColor, cellTint, grassFor, mix,
 } from '../core/palette.js';
 
-// GitHub-ish geometry: square day cells with a small gap.
-const CELL = 16;
-const GAP = 3;
-const PITCH = CELL + GAP;      // 19
-const R = 3;                   // corner radius
-const OX = 58;                 // grid origin: room for Mon/Wed/Fri on the left
-const OY = 60;                 //              room for month labels and glyphs
-const PAD_R = 22;
-const PAD_B = 70;              // legend strip
-const FONT = "'Patrick Hand', cursive";
-const CLIP_MAX = 260;          // flying clippings alive at once
-
-/** Stable per-column noise, so a patch of grass leans as one. */
-function hash(n) {
-  const x = Math.sin(n * 12.9898) * 43758.5453;
-  return x - Math.floor(x);
-}
+// GitHub-ish geometry: square day cells with a small gap. src/core/board.js
+// owns the numbers, so the SVG exporter draws the same board.
+const { CELL, GAP, PITCH, R, OX, OY, PAD_R, PAD_B } = GEOM;
 
 export class Renderer2D {
   constructor(canvas, lawn) {
@@ -78,9 +69,14 @@ export class Renderer2D {
 
   // --- doodle primitives ------------------------------------------------
 
+  /**
+   * The shared jitter stream, stepped by hand: every tile re-seeds it (so a
+   * doodle is stable for a tile within a boil frame), which a fresh `rng`
+   * closure per tile per frame would only do by allocating one.
+   */
   rnd() {
-    this.seed = (this.seed * 16807) % 2147483647;
-    return (this.seed - 1) / 2147483646;
+    this.seed = lcgStep(this.seed);
+    return lcgFloat(this.seed);
   }
   wob(v, a) { return v + (this.rnd() - 0.5) * a; }
 
@@ -206,7 +202,7 @@ export class Renderer2D {
 
     const cx = x + CELL / 2;
     const base = y + CELL - 1;
-    const spread = (cell.level >= 3 ? CELL * 0.7 : CELL * 0.44) * scale;
+    const spread = SPREAD(cell.level) * scale;
     const color = cellTint(bladeColor(cell.level, season), cell.col, cell.row);
     const dark = mix(color, INK, 0.25);
     const bias = (hash(cell.col) - 0.5) * 4;    // the whole patch leans together
@@ -302,7 +298,7 @@ export class Renderer2D {
     const m = lawn.mower;
     const sa = Math.sin(m.angle), ca = Math.cos(m.angle);
     // the chute sits on the mower's right, in mower-local (forward, right)
-    const S = 1.25;
+    const S = GEOM.MOWER_SCALE;
     const chuteX = this.px(m.x) + (6 * ca - 12 * sa) * S;
     const chuteY = this.py(m.z) + (6 * sa + 12 * ca) * S;
     let sum = 0;
@@ -315,7 +311,7 @@ export class Renderer2D {
       if (c.heroic) heroic = true;
       this.cutAt.set(i, this.now);
       const col = clipColor(c.level, season);
-      const n = 3 + 2 * c.level + (c.heroic ? 6 : 0);
+      const n = clippingCount(c);
       for (let k = 0; k < n; k++) {
         this.clippings.push({
           x: chuteX, y: chuteY,
@@ -328,10 +324,9 @@ export class Renderer2D {
         });
       }
     }
-    // clippings only age inside draw(), and the view you are not looking at
-    // never draws, so cap the pool or a whole lawn mowed in flat view lands in
-    // one frame the moment you switch
-    if (this.clippings.length > CLIP_MAX) this.clippings.splice(0, this.clippings.length - CLIP_MAX);
+    if (this.clippings.length > CLIP_MAX) {
+      this.clippings.splice(0, this.clippings.length - CLIP_MAX);
+    }
     if (quiet) return;
     const last = lawn.cells[lawn.lastMowed];
     if (last && !last.void) {
@@ -340,9 +335,8 @@ export class Renderer2D {
       if (!this.tag.x) { this.tag.x = this.px(m.x); this.tag.y = this.py(m.z); }
     }
     if (sum > 0) {
-      // a burst of tiny cuts reads as one find, not a stack of labels
       const top = this.popups[this.popups.length - 1];
-      if (top && top.age < 0.25) {
+      if (top && top.age < POPUP_MERGE) {
         top.n += sum;
         top.heroic = top.heroic || heroic;
       } else {
@@ -407,7 +401,7 @@ export class Renderer2D {
     const m = lawn.mower;
     const mx = this.px(m.x);
     const my = this.py(m.z);
-    const S = 1.25;
+    const S = GEOM.MOWER_SCALE;
 
     // exhaust, back left
     if (m.acc > 0 && Math.random() < 0.45) {
@@ -607,8 +601,9 @@ export class Renderer2D {
   /** The key doubles as a guide to how grass maps to contribution levels. */
   drawLegend() {
     const { ctx, lawn } = this;
-    const y = OY + lawn.rows * PITCH + 30;
-    ctx.font = `16px ${FONT}`;
+    const y = OY + lawn.rows * PITCH + GEOM.LEGEND_DY;
+    const gap = GEOM.LEGEND_GAP;
+    ctx.font = `${GEOM.LEGEND_SIZE}px ${FONT}`;
     ctx.textBaseline = 'middle';
     const wMore = ctx.measureText('more').width;
     const wLess = ctx.measureText('less').width;
@@ -617,12 +612,12 @@ export class Renderer2D {
     // so a narrow screen gets the key instead of a blank strip under the lawn
     const [visL, visR] = this.visibleSpan();
     const right = Math.max(
-      visL + 8 + wLess + 26 + swatches + 26 + wMore,
+      visL + 8 + wLess + gap + swatches + gap + wMore,
       Math.min(OX + lawn.cols * PITCH - GAP, visR - 8),
     );
-    const x0 = right - wMore - 26 - swatches;
+    const x0 = right - wMore - gap - swatches;
     ctx.fillStyle = PENCIL;
-    ctx.fillText('less', x0 - wLess - 26, y + CELL / 2 + 1);
+    ctx.fillText('less', x0 - wLess - gap, y + CELL / 2 + 1);
     ctx.fillText('more', right - wMore, y + CELL / 2 + 1);
     for (let l = 0; l <= 4; l++) {
       this.seed = l * 977 + this.boil * 17 + 3;
@@ -632,7 +627,7 @@ export class Renderer2D {
         count: 0, void: false, vigor: 0.5, heroic: false,
       };
       this.drawTile(x, y, fake, 2);
-      this.drawGrass(x, y, fake, 2, 1.3);
+      this.drawGrass(x, y, fake, 2, GEOM.LEGEND_SCALE);
     }
   }
 
@@ -643,11 +638,12 @@ export class Renderer2D {
    */
   drawBed(gw, gh) {
     const { ctx, lawn } = this;
-    const x0 = OX - 5, y0 = OY - 5, w = gw + 10, h = gh + 10;
+    const bi = GEOM.BED_INSET;
+    const x0 = OX - bi, y0 = OY - bi, w = gw + bi * 2, h = gh + bi * 2;
     const soil = (s) => mix(DIRT_BY_SEASON[s], PAPER, 0.58);
 
     ctx.save();
-    this.roundedPath(x0, y0, w, h, 8, 1.1);
+    this.roundedPath(x0, y0, w, h, GEOM.BED_R, 1.1);
     ctx.clip();
     for (let c = 0; c < lawn.cols; c++) {
       const s = seasonIndexOfCol(lawn, c);
@@ -662,8 +658,8 @@ export class Renderer2D {
     ctx.fillRect(x0, y0, w, 2);
     ctx.restore();
 
-    this.roundedPath(x0, y0, w, h, 8, 1.1);
-    ctx.strokeStyle = INK; ctx.lineWidth = 1.8; ctx.stroke();
+    this.roundedPath(x0, y0, w, h, GEOM.BED_R, 1.1);
+    ctx.strokeStyle = INK; ctx.lineWidth = GEOM.BED_W; ctx.stroke();
   }
 
   /** A 10px doodle for the season a month belongs to. */
@@ -820,7 +816,7 @@ export class Renderer2D {
 
     // month labels across the top, like GitHub
     this.seed = this.boil * 7919 + 13;
-    ctx.font = `16px ${FONT}`;
+    ctx.font = `${GEOM.MONTH_SIZE}px ${FONT}`;
     ctx.fillStyle = PENCIL;
     ctx.textBaseline = 'alphabetic';
     let lastSeason = -1;
@@ -830,21 +826,24 @@ export class Renderer2D {
       const name = MONTH_NAMES[ms.month].slice(0, 3);
       const lx = this.tileX(ms.col);
       ctx.fillStyle = PENCIL;
-      ctx.fillText(name, lx, OY - 22);
+      ctx.fillText(name, lx, OY + GEOM.MONTH_DY);
       // the first month of a season carries its little weather doodle
       const s = SEASON_OF_MONTH[ms.month];
       if (s !== lastSeason) {
-        this.seasonGlyph(lx + ctx.measureText(name).width + 10, OY - 27, s);
+        this.seasonGlyph(lx + ctx.measureText(name).width + 10, OY + GEOM.GLYPH_DY, s);
         ctx.fillStyle = PENCIL;
         lastSeason = s;
       }
     }
 
     // fence ticks + rule above the grid
-    ctx.strokeStyle = PENCIL; ctx.lineWidth = 1.1;
+    ctx.strokeStyle = PENCIL; ctx.lineWidth = GEOM.FENCE_W;
     const gw = cols * PITCH - GAP;
-    for (let f = 0; f <= gw / 14; f++) this.line(OX + f * 14, OY - 16, OX + f * 14, OY - 9, 0.7);
-    this.line(OX, OY - 12, OX + gw, OY - 12, 0.8);
+    const step = GEOM.FENCE_STEP;
+    for (let f = 0; f <= gw / step; f++) {
+      this.line(OX + f * step, OY + GEOM.FENCE_TOP, OX + f * step, OY + GEOM.FENCE_BOT, 0.7);
+    }
+    this.line(OX, OY + GEOM.FENCE_RULE, OX + gw, OY + GEOM.FENCE_RULE, 0.8);
 
     // dirt bed under the tiles, coloured by the climate of each column
     this.drawBed(gw, lawn.rows * PITCH - GAP);
@@ -916,15 +915,15 @@ export class Renderer2D {
     }
 
     // weekday labels last, with a paper halo, so the parked mower never hides them
-    ctx.font = `15px ${FONT}`;
+    ctx.font = `${GEOM.LABEL_SIZE}px ${FONT}`;
     ctx.textBaseline = 'middle';
     ctx.lineWidth = 4; ctx.lineJoin = 'round';
     ctx.strokeStyle = PAPER;
     ['Mon', 'Wed', 'Fri'].forEach((d, i) => {
       const y = this.tileY(1 + i * 2) + CELL / 2 + 1;
-      ctx.strokeText(d, 8, y);
+      ctx.strokeText(d, GEOM.LABEL_X, y);
       ctx.fillStyle = PENCIL;
-      ctx.fillText(d, 8, y);
+      ctx.fillText(d, GEOM.LABEL_X, y);
     });
     ctx.textBaseline = 'alphabetic';
 

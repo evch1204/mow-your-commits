@@ -10,7 +10,8 @@ import {
   BARE,
 } from '../src/core/palette.js';
 import { planRoute } from '../src/core/route.js';
-import { lawnToSvg, GEOM } from '../src/export/svg.js';
+import { GEOM } from '../src/core/board.js';
+import { lawnToSvg } from '../src/export/svg.js';
 import { THEMES } from '../src/export/themes.js';
 import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
 import { workflowYaml, markdownSnippet, shareUrl, SITE } from '../src/share.js';
@@ -645,8 +646,9 @@ const svg = lawnToSvg(svgLawn);
 const nonVoid = svgLawn.cells.filter((c) => !c.void).length;
 
 ok('svg starts with an svg root', svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"'));
-// the board's own geometry, so a move in render2d that GEOM did not follow
-// shows up here instead of in a lopsided README picture
+// the board's own geometry, straight out of src/core/board.js: both the canvas
+// and the exporter lay out on it, so a move that changes the shape of the
+// picture in a README has to change these numbers first
 const boxFor = (cols) => `viewBox="0 0 ${GEOM.OX + cols * GEOM.PITCH + GEOM.PAD_R}`
   + ` ${GEOM.OY + ROWS * GEOM.PITCH + GEOM.PAD_B}"`;
 ok('the exporter uses the 2D board geometry',
