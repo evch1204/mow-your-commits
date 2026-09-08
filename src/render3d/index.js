@@ -3,9 +3,9 @@ import {
   ROWS, MAX_COLS, MONTH_NAMES, seasonIndexOfCol, seasonIndexAt,
 } from '../core/lawn.js';
 import {
-  INK, CREAM, DIRT, AUTUMN_BLADE,
+  INK, CREAM, DIRT, AUTUMN_BLADE, DANDELION, PETAL, ORANGE, GRASS,
   SKY_TOP, SKY_HORIZON, MEADOW_BY_SEASON, SUN_LIGHT,
-  tileColor, stripe, bladeColor, clipColor,
+  tileColor, stripe, bladeColor, clipColor, cellTint, shade,
 } from '../core/palette.js';
 
 const FONT = "'Patrick Hand', cursive";
@@ -19,6 +19,9 @@ const MOWED_SCALE = 0.18;
 // Hemisphere light tint per season: cool in winter, warm in summer.
 const HEMI = ['#DCE9F4', '#EEF8E6', '#FFF6DE', '#FBEBD6'];
 const DIR_INTENSITY = [0.75, 1.05, 1.35, 1.0];
+
+/** The three browns an autumn leaf can be. */
+const AUTUMN_TRIO = ['#D85A30', '#EF9F27', '#BA7517'];
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const ease = (t) => t * t * (3 - 2 * t);
@@ -92,6 +95,7 @@ export class Renderer3D {
     this.clippings = [];
     this.popups = [];
     this.anim = new Set();
+    this.cutAt = new Map();
 
     // camera: chase <-> overview, each with its own look-around offset
     this.camMode = 0;
@@ -460,7 +464,8 @@ export class Renderer3D {
     }
     this.slotOf = new Int16Array(SLOTS);
 
-    // spring flowers: tiny dots in the thin grass
+    // spring flowers: tiny dots in the thin grass. The same pool carries the
+    // dandelion each of the year's best days puts up.
     this.flowers = new THREE.InstancedMesh(
       new THREE.SphereGeometry(0.05, 6, 4),
       new THREE.MeshBasicMaterial(),
@@ -470,6 +475,7 @@ export class Renderer3D {
     this.flowers.frustumCulled = false;
     this.scene.add(this.flowers);
     this.flowerSlot = new Int16Array(SLOTS);
+    this.heroSlot = new Int16Array(SLOTS);
   }
 
   // --- weather ----------------------------------------------------------
@@ -483,7 +489,7 @@ export class Renderer3D {
       c.fillStyle = g;
       c.fillRect(0, 0, 32, 32);
     });
-    const N = 260;
+    const N = 420;
     const pos = new Float32Array(N * 3);
     for (let i = 0; i < N; i++) {
       pos[i * 3] = (Math.random() - 0.5) * 28;
@@ -493,11 +499,38 @@ export class Renderer3D {
     this.snowGeo = new THREE.BufferGeometry();
     this.snowGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     this.snowMat = new THREE.PointsMaterial({
-      map: dot, size: 0.35, transparent: true, opacity: 0, depthWrite: false,
+      map: dot, size: 0.42, transparent: true, opacity: 0, depthWrite: false, fog: false,
     });
     this.snow = new THREE.Points(this.snowGeo, this.snowMat);
     this.snow.frustumCulled = false;
     this.scene.add(this.snow);
+
+    // summer: dandelion fluff drifting upward
+    const fluffTex = this.canvasTexture(32, 32, (c) => {
+      const g = c.createRadialGradient(16, 14, 1, 16, 14, 12);
+      g.addColorStop(0, 'rgba(255,253,245,1)');
+      g.addColorStop(0.6, 'rgba(255,253,245,0.85)');
+      g.addColorStop(1, 'rgba(255,253,245,0)');
+      c.fillStyle = g;
+      c.fillRect(0, 0, 32, 32);
+      c.strokeStyle = 'rgba(44,44,42,0.6)'; c.lineWidth = 1;
+      c.beginPath(); c.moveTo(16, 22); c.lineTo(16, 29); c.stroke();
+    });
+    const F = 80;
+    const fpos = new Float32Array(F * 3);
+    for (let i = 0; i < F; i++) {
+      fpos[i * 3] = (Math.random() - 0.5) * 28;
+      fpos[i * 3 + 1] = Math.random() * 8;
+      fpos[i * 3 + 2] = (Math.random() - 0.5) * 24;
+    }
+    this.fluffGeo = new THREE.BufferGeometry();
+    this.fluffGeo.setAttribute('position', new THREE.BufferAttribute(fpos, 3));
+    this.fluffMat = new THREE.PointsMaterial({
+      map: fluffTex, size: 0.3, transparent: true, opacity: 0, depthWrite: false, fog: false,
+    });
+    this.fluff = new THREE.Points(this.fluffGeo, this.fluffMat);
+    this.fluff.frustumCulled = false;
+    this.scene.add(this.fluff);
 
     const leafGeo = new THREE.PlaneGeometry(0.3, 0.19);
     this.leaves = [];
@@ -649,7 +682,7 @@ export class Renderer3D {
     this.lean = 0;
     this.scene.add(g);
 
-    this.clipGeo = new THREE.BoxGeometry(0.09, 0.09, 0.09);
+    this.clipGeo = new THREE.BoxGeometry(0.11, 0.11, 0.11);
     this.clipMats = new Map();
     this.puffGeo = new THREE.SphereGeometry(0.07, 6, 5);
     this.puffMat = new THREE.MeshBasicMaterial({ color: 0x8c8a84, transparent: true, opacity: 0.4 });
@@ -773,18 +806,24 @@ export class Renderer3D {
       d.scale.set(1, 1, 1);
       d.updateMatrix();
       this.tiles.setMatrixAt(ts, d.matrix);
-      let tc = tileColor(c.level, season, c.mowed && c.mowT > 0.35);
+      let tc = tileColor(c.level, season, c.mowed && c.mowT > 0.35, c.vigor || 0);
       if (c.mowed && c.level > 0 && c.col % 2 === 0 && c.mowT > 0.35) tc = stripe(tc);
       col.set(tc);
+      // a fresh cut flashes for a moment, so you see what you just took
+      const cutAge = this.cutAt.has(i) ? (this.time - this.cutAt.get(i)) / 1.2 : 2;
+      if (cutAge < 1) col.lerp(this.tmpColorB.set('#FFFFFF'), 0.3 * (1 - cutAge));
       this.tiles.setColorAt(ts, col);
     }
 
-    // grass
+    // grass. A day's own count decides how tall and how wide the tuft grows.
     if (c.level > 0) {
       const mesh = this.grass[c.level - 1];
       const slot = this.slotOf[i];
-      const ys = this.cellScaleY(c);
-      const xz = 1 + Math.sin(Math.PI * Math.min(1, c.mowT)) * (c.mowed ? 0.22 : 0);
+      const v = c.vigor || 0;
+      const span = GRASS.tuftY[c.level];
+      const ys = this.cellScaleY(c) * (span[0] + (span[1] - span[0]) * v);
+      const xz = (0.85 + 0.3 * v)
+        * (1 + Math.sin(Math.PI * Math.min(1, c.mowT)) * (c.mowed ? 0.22 : 0));
       d.position.set(this.wx(c.col + 0.5), 0.14, this.wz(c.row + 0.5));
       d.rotation.set(0, c.rot, 0);
       d.scale.set(xz, ys, xz);
@@ -793,7 +832,9 @@ export class Renderer3D {
       if (c.mowed) {
         col.set(tileColor(c.level, season, true));
       } else {
-        col.set(bladeColor(c.level, season));
+        const base = bladeColor(c.level, season);
+        col.set(cellTint(base, c.col, c.row));
+        col.lerp(this.tmpColorB.set(shade(base, 0.7)), 0.25 * v);
         // one autumn tuft in five has turned brown
         if (season === 3 && (c.col * 7 + c.row * 13) % 5 === 0) {
           col.lerp(this.tmpColorB.set(AUTUMN_BLADE), 0.55);
@@ -815,7 +856,23 @@ export class Renderer3D {
       d.scale.setScalar(show ? 1 : 0.0001);
       d.updateMatrix();
       this.flowers.setMatrixAt(fs, d.matrix);
-      this.flowers.setColorAt(fs, col.set((c.col + c.row) % 2 ? '#F6C3D4' : '#FFFDF5'));
+      this.flowers.setColorAt(fs, col.set((c.col + c.row) % 2 ? PETAL[0] : PETAL[1]));
+    }
+
+    // the best days of the year put up a dandelion, until you cut it
+    const hs = this.heroSlot[i];
+    if (hs >= 0) {
+      const show = !c.mowed;
+      d.position.set(
+        this.wx(c.col + 0.5) + (c.rot % 1 - 0.5) * 0.3,
+        show ? 0.14 + TUFT_HEIGHT[3] * 1.15 : -9,
+        this.wz(c.row + 0.5) + ((c.rot * 3) % 1 - 0.5) * 0.3,
+      );
+      d.rotation.set(0, 0, 0);
+      d.scale.setScalar(show ? 1.8 : 0.0001);
+      d.updateMatrix();
+      this.flowers.setMatrixAt(hs, d.matrix);
+      this.flowers.setColorAt(hs, col.set(DANDELION));
     }
   }
 
@@ -832,10 +889,13 @@ export class Renderer3D {
       const springy = !c.void && c.level > 0 && c.level <= 2
         && seasonIndexOfCol(this.lawn, c.col) === 1;
       this.flowerSlot[i] = springy ? flowers++ : -1;
+      const hero = !c.void && c.heroic && seasonIndexOfCol(this.lawn, c.col) !== 0;
+      this.heroSlot[i] = hero ? flowers++ : -1;
     }
     this.tiles.count = tiles;
     this.flowers.count = flowers;
     for (let l = 0; l < 4; l++) this.grass[l].count = counts[l];
+    this.cutAt.clear();
     for (let i = 0; i < cells.length; i++) this.setCell(i);
     this.anim.clear();
     this.flagDirty();
@@ -882,15 +942,18 @@ export class Renderer3D {
     const chute = this.localToWorld(0.66, 0.24, 0.1);
     const right = this.rightVector();
     let sum = 0;
+    let heroic = false;
     for (const i of indices) {
       const c = this.lawn.cells[i];
       if (!c || c.void) continue;
       const season = seasonIndexOfCol(this.lawn, c.col);
       sum += c.count;
+      if (c.heroic) heroic = true;
       this.anim.add(i);
+      this.cutAt.set(i, this.time);
       this.setCell(i);
       const mat = this.clipMat(clipColor(c.level, season));
-      const n = 3 + 2 * c.level;
+      const n = 3 + 2 * c.level + (c.heroic ? 6 : 0);
       for (let k = 0; k < n; k++) {
         const cm = new THREE.Mesh(this.clipGeo, mat);
         cm.position.copy(chute);
@@ -904,21 +967,39 @@ export class Renderer3D {
         this.clippings.push(cm);
       }
     }
-    if (sum > 0 && !quiet) this.spawnPopup(sum);
+    if (sum > 0 && !quiet) this.spawnPopup(sum, heroic);
     if (indices.length) this.flagDirty();
   }
 
-  spawnPopup(n) {
-    const tex = this.canvasTexture(256, 128, (g) => {
+  popupTexture(n, heroic) {
+    const label = '+' + n + (heroic ? '!' : '');
+    return this.canvasTexture(256, 128, (g) => {
       g.clearRect(0, 0, 256, 128);
       g.font = `84px ${FONT}`;
       g.textAlign = 'center'; g.textBaseline = 'middle';
       g.lineWidth = 10; g.lineJoin = 'round';
-      g.strokeStyle = '#FBF9F2'; g.strokeText('+' + n, 128, 66);
-      g.fillStyle = INK; g.fillText('+' + n, 128, 64);
+      g.strokeStyle = '#FBF9F2'; g.strokeText(label, 128, 66);
+      g.fillStyle = n >= 25 ? ORANGE : INK; g.fillText(label, 128, 64);
+      if (n >= 25) { g.lineWidth = 3; g.strokeStyle = INK; g.strokeText(label, 128, 64); }
     });
+  }
+
+  /** A bigger day gets a bigger number; the best days get an exclamation. */
+  spawnPopup(n, heroic) {
+    // a burst of tiny cuts reads as one find, not a stack of labels
+    const last = this.popups[this.popups.length - 1];
+    if (last && last.age < 0.25) {
+      last.n += n;
+      last.heroic = last.heroic || heroic;
+      last.sp.material.map.dispose();
+      last.sp.material.map = this.popupTexture(last.n, last.heroic);
+      last.sp.material.needsUpdate = true;
+      const s2 = 2.4 + Math.min(1.6, last.n * 0.04);
+      last.sp.scale.set(s2, s2 / 2, 1);
+      return;
+    }
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: tex, transparent: true, depthTest: false, fog: false,
+      map: this.popupTexture(n, heroic), transparent: true, depthTest: false, fog: false,
     }));
     const m = this.lawn.mower;
     const j = (this.popups.length % 3) - 1;
@@ -927,10 +1008,11 @@ export class Renderer3D {
       2.2 + j * 0.25,
       this.wz(m.z) + Math.cos(m.angle) * j * 0.9,
     );
-    sp.scale.set(2.4, 1.2, 1);
+    const s = 2.4 + Math.min(1.6, n * 0.04);
+    sp.scale.set(s, s / 2, 1);
     sp.renderOrder = 10;
     this.scene.add(sp);
-    this.popups.push({ sp, t: 0 });
+    this.popups.push({ sp, t: 0, age: 0, n, heroic });
     if (this.popups.length > 8) {
       const old = this.popups.shift();
       this.scene.remove(old.sp);
@@ -1003,19 +1085,38 @@ export class Renderer3D {
       this.snowGeo.attributes.position.needsUpdate = true;
     }
 
-    // leaves
-    const leafy = wm[3];
+    // the same pool is autumn leaves and spring blossom, whichever is nearer
+    const spring = wm[1] > wm[3];
+    const falling = clamp(wm[3] + 0.6 * wm[1], 0, 1);
     for (let i = 0; i < this.leaves.length; i++) {
       const lf = this.leaves[i];
-      lf.visible = leafy > 0.01;
-      lf.material.opacity = leafy;
+      lf.visible = falling > 0.01;
+      lf.material.opacity = falling;
       if (!lf.visible) continue;
-      lf.position.y -= lf.userData.v;
+      lf.material.color.set(spring ? PETAL[i % 2] : AUTUMN_TRIO[i % 3]);
+      lf.position.y -= lf.userData.v * (spring ? 0.6 : 1);
       lf.position.x += Math.sin(this.time * 1.7 + i) * 0.012;
       lf.rotation.x += 0.03; lf.rotation.z += 0.02;
       if (lf.position.y < 0.1 || Math.abs(lf.position.x - tx) > 15 || Math.abs(lf.position.z - tz) > 14) {
         lf.position.set(tx + (Math.random() - 0.5) * 26, 5 + Math.random() * 4, tz + (Math.random() - 0.5) * 22);
       }
+    }
+
+    // summer: dandelion fluff drifting up out of the grass
+    this.fluffMat.opacity = wm[2];
+    this.fluff.visible = wm[2] > 0.01;
+    if (this.fluff.visible) {
+      const fp = this.fluffGeo.attributes.position.array;
+      for (let s = 0; s < fp.length / 3; s++) {
+        fp[s * 3 + 1] += 0.012;
+        fp[s * 3] += Math.sin(this.time * 0.9 + s) * 0.008;
+        if (fp[s * 3 + 1] > 7 || Math.abs(fp[s * 3] - tx) > 16 || Math.abs(fp[s * 3 + 2] - tz) > 15) {
+          fp[s * 3] = tx + (Math.random() - 0.5) * 28;
+          fp[s * 3 + 1] = 0.2 + Math.random() * 1.2;
+          fp[s * 3 + 2] = tz + (Math.random() - 0.5) * 24;
+        }
+      }
+      this.fluffGeo.attributes.position.needsUpdate = true;
     }
 
     // sun and clouds hang high behind the fence, anchored to where you are
@@ -1084,7 +1185,11 @@ export class Renderer3D {
     if (this.anim.size) {
       for (const i of Array.from(this.anim)) {
         this.setCell(i);
-        if (lawn.cells[i].mowT >= 1) this.anim.delete(i);
+        const at = this.cutAt.get(i);
+        if (lawn.cells[i].mowT >= 1 && (at === undefined || this.time - at > 1.2)) {
+          this.anim.delete(i);
+          this.cutAt.delete(i);
+        }
       }
       this.flagDirty();
     }
@@ -1143,6 +1248,7 @@ export class Renderer3D {
     // +N popups
     for (let i = this.popups.length - 1; i >= 0; i--) {
       const p = this.popups[i];
+      p.age += dt;
       p.t += dt / 0.9;
       p.sp.position.y += dt * 1.5;
       p.sp.material.opacity = p.t < 0.6 ? 1 : Math.max(0, 1 - (p.t - 0.6) / 0.4);

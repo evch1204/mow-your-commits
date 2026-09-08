@@ -316,9 +316,10 @@ function showMowed(indices) {
 }
 
 /**
- * ?autodrive=1 : hold the gas for the first 3 seconds. Headless Chrome barely
+ * ?autodrive=1 : hold the gas for the first couple of seconds. Headless Chrome barely
  * runs requestAnimationFrame under --virtual-time-budget, so those 3 seconds
- * are stepped synchronously before the first paint; the screenshot then shows
+ * are stepped synchronously before the first paint, and stop short of the far
+ * end of the year so the chase camera still has lawn in front of it; the shot
  * mowed tiles, clippings, the +N popup and the last-mowed tag.
  */
 function prewarm(seconds) {
@@ -327,7 +328,7 @@ function prewarm(seconds) {
   let recent = [];
   for (let i = 0; i < steps; i++) {
     auto += DT;
-    input.up = true;
+    autoDrive();
     const mowed = tick(lawn, input, DT);
     flat.sampleTrack();     // no frames run in here, so lay the tyre trail by hand
     if (mowed.length) {
@@ -337,6 +338,27 @@ function prewarm(seconds) {
   }
   deep.applyLawn();
   if (recent.length) showMowed(recent);
+}
+
+/**
+ * ?autodrive=1 steering: a demo lap that stays on the lawn. Hold a heading
+ * (down the year, then a U-turn and back up it) and lean into it to keep the
+ * middle rows, so a headless screenshot never catches the mower parked out in
+ * the meadow with nothing to mow.
+ */
+let autoDir = 1;
+function autoDrive() {
+  const m = lawn.mower;
+  if (autoDir > 0 && m.x > lawn.cols - 5) autoDir = -1;
+  else if (autoDir < 0 && m.x < 5) autoDir = 1;
+  const lean = Math.max(-0.9, Math.min(0.9, (ROWS / 2 - m.z) * 0.4));
+  const want = autoDir > 0 ? lean : Math.PI - lean;
+  let d = want - m.angle;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  input.up = true;
+  input.right = d > 0.03;
+  input.left = d < -0.03;
 }
 
 /** Debug: sweep every row before the first paint so the end card is on screen. */
@@ -393,10 +415,8 @@ function frame(ts) {
   last = ts;
 
   if (autodrive && !lawn.finished) {
-    // keep sweeping so the demo never parks in an empty corner
     auto += dt;
-    input.up = true;
-    input.right = auto > 3 && (auto % 3.4) < 0.62;
+    autoDrive();
   }
 
   const mowed = tick(lawn, input, dt);
