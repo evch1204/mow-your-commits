@@ -162,7 +162,8 @@
         flex-direction: row; width: 100%; max-height: none;
         overflow-x: auto; overflow-y: hidden; padding-bottom: 2px;
       }
-      #years button { min-width: 0; text-align: center; white-space: nowrap; border-color: var(--ink); background: var(--cream); }
+      /* a real account brings 16+ years: let the row scroll, never squash a label */
+      #years button { flex: 0 0 auto; min-width: 0; text-align: center; white-space: nowrap; border-color: var(--ink); background: var(--cream); }
       #pad button { width: 66px; height: 58px; }
     }
 
