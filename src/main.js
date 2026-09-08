@@ -136,14 +136,19 @@ function setView(name) {
 /**
  * The flat board is a 4:1 strip about 230px tall, but a real account brings
  * sixteen years: left alone the list towers beside the lawn and leaves a hole
- * where the page should end. Keep it the height of the board it belongs to.
+ * where the page should end, so cap it at the height of the board. The demo's
+ * six years overhang by a row and that reads as deliberate, so leave a little
+ * slack rather than making the short list scroll for nothing.
  * On a phone the years are a scrolling row instead, so leave that alone.
  */
+const OVERHANG = 60;
 function fitYears() {
   const stacked = typeof window.matchMedia === 'function'
     && window.matchMedia('(max-width: 820px)').matches;
-  yearsEl.style.maxHeight = stacked || active !== 'flat' || !stage.clientHeight
-    ? '' : stage.clientHeight + 'px';
+  const room = stage.clientHeight;
+  yearsEl.style.maxHeight = '';
+  if (stacked || active !== 'flat' || !room) return;
+  if (yearsEl.scrollHeight > room + OVERHANG) yearsEl.style.maxHeight = room + 'px';
 }
 
 function setCamera(mode) {
