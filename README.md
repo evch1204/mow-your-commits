@@ -22,6 +22,21 @@ sits inside its own level's range), so a 40-contribution day grows taller, dense
 darker than a 12 in the same green. The top 3% of your days are `heroic` and put up a
 dandelion until you mow them.
 
+## try it with your own username
+
+**<https://evch1204.github.io/mow-your-commits/>**
+
+Type your GitHub username in the box above the lawn (a login, an `@handle` or a
+profile link) and it becomes your real graph. `?user=torvalds` mows somebody else's;
+`?year=2025` picks a calendar year. Mow all 52 weeks and the end card gives you a
+time, a brag line and a picture to post.
+
+**Controls.** Click the lawn, then WASD or the arrow keys. In 3D, drag to look
+around, scroll or pinch to zoom, double-click to recentre; `C` swaps the chase cam
+for an overview of the whole year and `R` regrows. Toggle flat / 3D with the
+buttons. On a phone there is an on-screen pad, and the flat lawn scrolls sideways
+to follow the mower.
+
 Two renderers share one model:
 
 - `src/core/` — the lawn itself. Cells, mower physics, mowing detection, seasons,
@@ -47,14 +62,6 @@ years offered are exactly the years that profile's own year picker shows. The ro
 cells before 1 Jan and after 31 Dec (and after today, in the current year) that are
 drawn as nothing and can't be mowed.
 
-## try it
-
-**<https://evch1204.github.io/mow-your-commits/>**
-
-Type a username and drive. `?user=torvalds` mows somebody else's lawn; `?year=2025`
-picks a calendar year. Mow all 52 weeks and the end card gives you a time, a brag
-line and a picture to post.
-
 ## Run
 
 ```
@@ -62,17 +69,14 @@ npm install
 npm run dev
 ```
 
-Click the lawn, then WASD or arrow keys. In 3D, drag to look around, scroll or pinch to
-zoom, double-click to recentre; `C` swaps the chase cam for an overview of the whole year
-and `R` regrows. Toggle flat / 3D with the buttons. On a phone there is an on-screen pad;
-the flat lawn scrolls sideways and follows the mower.
-
-Mow every day to get the end card, with your time and a `copy brag` button.
-
 ```
 npm run build          # dist/ uses relative paths, so it works on GitHub Pages
 node scripts/smoke.mjs # pure-node assertions over the sim + the data layer
 node scripts/smoke.mjs --live torvalds   # also hits the real contributions API
+
+# the README pictures, without a browser and without node_modules
+node scripts/render-svg.mjs --demo --outputs "docs/lawn.svg
+docs/lawn-dark.svg?theme=dark"
 ```
 
 ### Screenshots
@@ -97,14 +101,16 @@ lies about phone width. For a real 390px shot, point it at a local file holding
 | --- | --- |
 | `?view=flat` / `?view=deep` | which renderer to start in |
 | `?year=2025` | pick a calendar year instead of the rolling 52 weeks |
-| `?user=torvalds` | load a real account (a login, not a URL) |
+| `?user=torvalds` | load a real account (a login, an @handle or a profile link) |
 | `?seed=123` | a different fake year (deterministic), demo lawn only |
 | `?autodrive=1` | debug: drives a demo lap down the year and back, for headless screenshots |
 | `?cam=overview` | debug: start the 3D view on the overview camera |
 | `?start=30` | debug: park the mower in a column (drive into a season) |
 | `?yaw=45`, `?dist=6` | debug: preset look-around angle and camera distance |
 | `?finish=1` | debug: mow everything before the first paint (end card) |
-| `?og=1` | debug: hide the controls and the landing strips, for the 1200x630 social card |
+| `?og=1` | debug: hide the controls, the year list and the landing strips, for the 1200x630 social card |
+
+Only `?user`, `?year` and `?seed` travel in a share link; the debug flags stay at home.
 
 ## put it in your profile
 
@@ -165,7 +171,11 @@ Each `outputs` line is a path plus options as a query string:
 
 The data is GitHub's own `contributionsCollection` GraphQL calendar, read with the
 default action token; without a token it falls back to
-`github-contributions-api.jogruber.de`. Full details in [`action/README.md`](action/README.md).
+`github-contributions-api.jogruber.de`. Both go through `src/core/github.js` and
+`src/core/contrib.js`, the same parser and the same grid the site uses, and
+`src/export/svg.js` draws through `src/core/palette.js` - so the picture in your
+README is the board on the page, not a lookalike. Full details in
+[`action/README.md`](action/README.md).
 
 ## download
 
@@ -178,6 +188,10 @@ is the picture you were looking at. Or render one yourself:
 node scripts/render-svg.mjs --user torvalds --outputs "out/lawn.svg"
 node scripts/render-svg.mjs --demo --outputs "out/a.svg\nout/b.svg?theme=dark&animate=1"
 ```
+
+`render-svg.mjs` imports only `src/core/*` and `src/export/*`, which have no
+dependencies, so it runs with `node_modules` deleted. That is what lets the Action
+skip `npm ci`; keep it that way.
 
 The exported SVG embeds the Latin subset of **Patrick Hand** by Patrick Wagesreiter
 (SIL Open Font License 1.1) as a `data:` URI, because an `<img>` SVG in a README
