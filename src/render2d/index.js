@@ -167,9 +167,9 @@ export class Renderer2D {
 
     // winter: snow settles along the top edge instead of washing the whole tile
     if (season === 0 && !cell.mowed && cell.level > 0) {
-      ctx.globalAlpha = 0.45;
+      ctx.globalAlpha = 0.34;
       ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(x + 1.5, y + 1, CELL - 3, 3);
+      ctx.fillRect(x + 1.5, y + 1, CELL - 3, 2.5);
       ctx.globalAlpha = 1;
     }
   }

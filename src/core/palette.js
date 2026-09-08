@@ -32,8 +32,12 @@ const OVERGROWN = '#4E5A3C';
 
 /** Snow dusting on winter ground, and the pale blades that grow through it. */
 export const FROST = '#F2F5F7';
-/** Frosted but still green enough that four winter densities read apart. */
-export const WINTER_BLADE = ['', '#A8CDB5', '#7FB897', '#5A9878', '#3E7A5C'];
+/**
+ * Frosted but still green enough that four winter densities read apart, and
+ * every blade stays lighter than the tile it stands on: the old level-4 blade
+ * was darker than its own tile, so the busiest winter days went blank.
+ */
+export const WINTER_BLADE = ['', '#B2D3BC', '#8CC1A2', '#68A987', '#4C9070'];
 /** A few blades in autumn columns go brown. */
 export const AUTUMN_BLADE = '#BA7517';
 /** Spring flowers. */
@@ -116,11 +120,12 @@ export function levelGreen(level, season = 2) {
 export function tileColor(level, season, mowed, vigor = 0) {
   const g = levelGreen(level, season);
   if (mowed) return g;                      // the reveal rule always wins
-  if (level <= 0) return season === 0 ? mix(g, FROST, 0.35) : g;
+  if (level <= 0) return season === 0 ? mix(g, FROST, 0.30) : g;
   // overgrown; a busier day casts a deeper shadow on its own tile
   const over = shade(shade(mix(g, OVERGROWN, 0.34), 0.82), 1 - 0.12 * Math.max(0, Math.min(1, vigor)));
-  // winter ground carries a snow dusting, but light enough to keep the levels apart
-  return season === 0 ? mix(over, FROST, 0.2) : over;
+  // winter ground carries a snow dusting, but thin: the old 0.2 wash plus the
+  // frost cap in 2D flattened L1..L4 into one pale slab.
+  return season === 0 ? mix(over, FROST, 0.12) : over;
 }
 
 /** Multiply a hex colour brightness. */

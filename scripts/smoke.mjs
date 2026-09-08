@@ -5,7 +5,7 @@ import {
   describeCell, formatTime, formatDay, periodLabel, tempAt,
   gridForYear, layoutYear, placeMower, isoDay,
 } from '../src/core/lawn.js';
-import { GRASS, grassFor } from '../src/core/palette.js';
+import { GRASS, grassFor, tileColor, bladeColor, hexToRgb } from '../src/core/palette.js';
 import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
 import {
   parseUserInput, normaliseApi, clampLevel, GithubError,
@@ -608,6 +608,21 @@ ok('vigor 0 is the bottom of the span',
   [0, 1, 2, 3, 4].every((l) => grassFor(l, 0).blades === GRASS.blades[l][0]));
 ok('grassFor clamps out-of-range vigor',
   grassFor(4, 9).height === 19 && grassFor(4, -3).height === 14);
+
+// --- winter still reads as a graph ---------------------------------------
+
+const lum = (hex) => { const [r, g, b] = hexToRgb(hex); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+const winterTile = [0, 1, 2, 3, 4].map((l) => lum(tileColor(l, 0, false, 0.5)));
+ok('winter tiles keep four densities apart',
+  [1, 2, 3, 4].every((l) => winterTile[l - 1] - winterTile[l] > 8),
+  winterTile.map((v) => v.toFixed(0)).join(' '));
+ok('winter blades stay lighter than their own tile',
+  [1, 2, 3, 4].every((l) => lum(bladeColor(l, 0)) - lum(tileColor(l, 0, false, 0.5)) > 15),
+  [1, 2, 3, 4].map((l) => (lum(bladeColor(l, 0)) - lum(tileColor(l, 0, false, 0.5))).toFixed(0)).join(' '));
+ok('winter blades step apart level by level',
+  [2, 3, 4].every((l) => lum(bladeColor(l - 1, 0)) - lum(bladeColor(l, 0)) > 12));
+ok('mowed winter tiles are the GitHub greens, lightest to darkest',
+  [1, 2, 3, 4].every((l) => lum(tileColor(l, 0, true)) < lum(tileColor(l - 1, 0, true))));
 
 // --- temperature ----------------------------------------------------------
 
