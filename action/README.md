@@ -32,7 +32,7 @@ jobs:
 
       - uses: crazy-max/ghaction-github-pages@v4
         with: { target_branch: output, build_dir: dist }
-        env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
 ```
 
 Then in `USER/USER/README.md`:

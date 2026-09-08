@@ -11,6 +11,7 @@ import {
 import { lawnToSvg } from '../src/export/svg.js';
 import { THEMES } from '../src/export/themes.js';
 import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
+import { workflowYaml } from '../src/share.js';
 import {
   parseUserInput, normaliseApi, clampLevel, GithubError,
   fetchContributions, readCache, writeCache, CACHE_TTL, STALE_OK, MAX_CACHED,
@@ -709,6 +710,43 @@ ok('animate still loads nothing external',
 ok('a fully mowed lawn has nothing to animate',
   !lawnToSvg(svgLawn, { animate: true, mowed: 1 }).includes('<animateTransform'));
 
+// --- the workflow we hand people ------------------------------------------
+
+/**
+ * `${{ ... }}` inside a YAML *flow* mapping has to be quoted: the `{{` is read
+ * as two nested flow collections and the line stops parsing. A workflow that
+ * does this is accepted by nothing, so check every yaml we ship, not just ours.
+ */
+function flowSafe(yaml) {
+  return yaml.split('\n').every((line) => {
+    const bare = line.replace(/"[^"]*"|'[^']*'/g, '""');
+    let depth = 0;
+    for (let i = 0; i < bare.length; i++) {
+      if (depth > 0 && bare.startsWith('${{', i)) return false;
+      const ch = bare[i];
+      if (ch === '{' || ch === '[') depth++;
+      else if (ch === '}' || ch === ']') depth--;
+    }
+    return true;
+  });
+}
+
+const lf = (s) => s.replace(/\r\n/g, '\n');
+const yaml = workflowYaml();
+ok('the copied workflow has no expression inside a flow mapping', flowSafe(yaml));
+for (const f of ['.github/workflows/lawn.yml', '.github/workflows/ci.yml', 'action.yml']) {
+  ok(`${f} has no expression inside a flow mapping`,
+    flowSafe(lf(readFileSync(new URL('../' + f, import.meta.url), 'utf8'))));
+}
+for (const f of ['README.md', 'action/README.md']) {
+  ok(`${f} ships the same workflow the page copies`,
+    lf(readFileSync(new URL('../' + f, import.meta.url), 'utf8')).includes(lf(yaml)));
+}
+const actionYml = lf(readFileSync(new URL('../action.yml', import.meta.url), 'utf8'));
+for (const key of ['github_user_name', 'outputs']) {
+  ok(`the workflow's "${key}" is an input of action.yml`,
+    yaml.includes(key + ':') && actionYml.includes('  ' + key + ':'));
+}
 
 console.log(failures ? `\n${failures} FAILED` : '\nall good');
 process.exit(failures ? 1 : 0);

@@ -137,7 +137,7 @@ jobs:
 
       - uses: crazy-max/ghaction-github-pages@v4
         with: { target_branch: output, build_dir: dist }
-        env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
 ```
 
 3. Run it once from the Actions tab, then paste this into your README:
