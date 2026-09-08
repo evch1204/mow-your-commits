@@ -77,16 +77,30 @@ jobs:
 }
 
 /**
+ * Remember what a button said before it started flashing at people. Reading it
+ * back off the button loses the real label as soon as somebody clicks twice
+ * inside the flash, which leaves the button reading "copied!" forever.
+ */
+const flashing = new WeakMap();
+
+export function flash(btn, message, label) {
+  if (!btn) return;
+  const live = flashing.get(btn);
+  if (live) clearTimeout(live.timer);
+  const was = live ? live.was : (label || btn.textContent);
+  btn.textContent = message;
+  flashing.set(btn, {
+    was,
+    timer: setTimeout(() => { btn.textContent = was; flashing.delete(btn); }, 1600),
+  });
+}
+
+/**
  * Copy `text`, flashing the button that asked for it. Falls back to a prompt
  * on browsers (or insecure origins) without the async clipboard.
  */
 export function copy(text, btn, label) {
-  const was = label || (btn && btn.textContent) || '';
-  const done = () => {
-    if (!btn) return;
-    btn.textContent = 'copied!';
-    setTimeout(() => { btn.textContent = was; }, 1600);
-  };
+  const done = () => flash(btn, 'copied!', label);
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(done, () => window.prompt('copy this', text));
   } else {

@@ -291,20 +291,30 @@ function refreshPreview() {
   img.src = previewUrl;
 }
 
-if ($('yaml')) $('yaml').textContent = workflowYaml();
-
-on('dlsvg', 'click', () => downloadSvg(exportSvg(exportState()), exportName() + '.svg'));
-on('dlpng', 'click', async (e) => {
-  const btn = e.currentTarget;
+/**
+ * Rasterising takes a moment, so the button says so while it happens. It is
+ * disabled meanwhile: a second click would read "rendering..." as the label to
+ * put back and the button would keep saying that forever.
+ */
+async function renderPng(btn, mowed) {
+  if (btn.disabled) return;
   const was = btn.textContent;
+  btn.disabled = true;
   btn.textContent = 'rendering...';
   try {
-    download(await svgToPngBlob(exportSvg(exportState()), 2), exportName() + '.png');
+    download(await svgToPngBlob(exportSvg(mowed), 2), exportName() + '.png');
   } catch (err) {
+    console.error(err);
     window.alert('could not make a png here. the svg download works everywhere.');
   }
   btn.textContent = was;
-});
+  btn.disabled = false;
+}
+
+if ($('yaml')) $('yaml').textContent = workflowYaml();
+
+on('dlsvg', 'click', () => downloadSvg(exportSvg(exportState()), exportName() + '.svg'));
+on('dlpng', 'click', (e) => renderPng(e.currentTarget, exportState()));
 on('cpmd', 'click', (e) => copy(markdownSnippet(currentUser()), e.currentTarget));
 on('cpyml', 'click', (e) => copy(workflowYaml(), e.currentTarget));
 
@@ -316,17 +326,7 @@ on('sharex', 'click', (e) => {
 });
 if (navigator.share && $('sharex')) $('sharex').textContent = 'share';
 
-on('dlcard', 'click', async (e) => {
-  const btn = e.currentTarget;
-  const was = btn.textContent;
-  btn.textContent = 'rendering...';
-  try {
-    download(await svgToPngBlob(exportSvg('as-is'), 2), exportName() + '.png');
-  } catch (err) {
-    window.alert('could not make a png here. the svg download works everywhere.');
-  }
-  btn.textContent = was;
-});
+on('dlcard', 'click', (e) => renderPng(e.currentTarget, 'as-is'));
 
 on('tryme', 'click', () => {
   // plan B owns the loader form; without it, ask and reload on ?user=
