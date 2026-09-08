@@ -5,7 +5,11 @@ import {
   describeCell, formatTime, formatDay, periodLabel, tempAt,
   gridForYear, layoutYear, placeMower, isoDay,
 } from '../src/core/lawn.js';
-import { GRASS, grassFor, tileColor, bladeColor, hexToRgb } from '../src/core/palette.js';
+import {
+  GRASS, grassFor, tileColor, bladeColor, hexToRgb, mix, SEASON_TINT,
+} from '../src/core/palette.js';
+import { lawnToSvg } from '../src/export/svg.js';
+import { THEMES } from '../src/export/themes.js';
 import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
 import {
   parseUserInput, normaliseApi, clampLevel, GithubError,
@@ -630,6 +634,67 @@ ok('tempAt answers off both ends',
   [-2, 0, 10, vg.cols - 1, vg.cols + 2].every((x) => Number.isFinite(tempAt(vg, x))));
 ok('winter is colder than summer', tempAt(vg25, 2) < tempAt(vg25, 28),
   tempAt(vg25, 2) + ' vs ' + tempAt(vg25, 28));
+// --- svg export -----------------------------------------------------------
+
+const svgLawn = createLawn(null, { seed: 20260904 });
+const before = JSON.stringify(svgLawn);
+const svg = lawnToSvg(svgLawn);
+const nonVoid = svgLawn.cells.filter((c) => !c.void).length;
+
+ok('svg starts with an svg root', svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"'));
+ok('rolling lawn is 1058x257', svg.includes('viewBox="0 0 1058 257"'));
+ok('a 53-column year is 1077 wide',
+  lawnToSvg(createLawn(null, { seed: 1, year: 2025 })).includes('viewBox="0 0 1077 257"'));
+const tileGroup = /<g id="tiles">([\s\S]*?)<\/g>/.exec(svg)[1];
+ok('one tile rect per non-void cell',
+  (tileGroup.match(/<rect/g) || []).length === nonVoid,
+  `${(tileGroup.match(/<rect/g) || []).length} vs ${nonVoid}`);
+const y25svg = lawnToSvg(createLawn(null, { seed: 1, year: 2025 }));
+const y25tiles = /<g id="tiles">([\s\S]*?)<\/g>/.exec(y25svg)[1];
+const y25cells = createLawn(null, { seed: 1, year: 2025 }).cells.filter((c) => !c.void).length;
+ok('a year with voids draws fewer tiles than cols*rows',
+  (y25tiles.match(/<rect/g) || []).length === y25cells && y25cells < 53 * ROWS);
+
+for (const bit of ['>Mon<', '>Wed<', '>Fri<', '>less<', '>more<', 'data:font/woff2;base64,']) {
+  ok('svg contains ' + bit, svg.includes(bit));
+}
+const noNs = svg.replace(/xmlns="[^"]*"/, '');
+ok('svg loads nothing external', !/https?:\/\//.test(noNs));
+ok('svg has no script or foreignObject', !svg.includes('<script') && !svg.includes('<foreignObject'));
+
+ok('mowed 0 parks no mower', !lawnToSvg(svgLawn, { mowed: 0 }).includes('id="mower"'));
+ok('mowed 0 mows nothing', !lawnToSvg(svgLawn, { mowed: 0 }).includes('id="cuts"'));
+const all = lawnToSvg(svgLawn, { mowed: 1 });
+ok('mowed 1 draws a cut line pair per grown tile',
+  (/<path id="cuts" d="([^"]*)"/.exec(all)[1].match(/M/g) || []).length
+    === svgLawn.cells.filter((c) => !c.void && c.level > 0).length * 2);
+
+const asIs = createLawn(null, { seed: 20260904 });
+asIs.mower.z = 0.5; asIs.mower.x = -2; asIs.mower.angle = 0;
+guard = 0;
+while (asIs.mower.x < asIs.cols + 1 && guard++ < 20000) tick(asIs, gas, DT);
+const asIsSvg = lawnToSvg(asIs, { mowed: 'as-is' });
+ok('as-is follows cell.mowed',
+  (/<path id="cuts" d="([^"]*)"/.exec(asIsSvg)[1].match(/M/g) || []).length
+    === asIs.cells.filter((c) => c.mowed && c.level > 0 && !c.void).length * 2);
+ok('as-is draws the mower', asIsSvg.includes('id="mower"'));
+ok('exporting never touches the lawn', JSON.stringify(svgLawn) === before);
+
+const darkSvg = lawnToSvg(svgLawn, { theme: 'dark' });
+ok('dark uses GitHub dark paper', darkSvg.includes('#0D1117'));
+// every green is season-tinted, so the ramp never appears verbatim; check the
+// four tinted flavours of the top dark green instead (e.g. summer -> #3cd251)
+ok('dark uses the GitHub dark ramp',
+  SEASON_TINT.some(([t, a]) => darkSvg.includes(mix(THEMES.dark.greens[4], t, a))));
+ok('dark drops the paper colour', !darkSvg.includes('#FBF9F2'));
+
+ok('svg is deterministic', lawnToSvg(svgLawn) === svg);
+ok('svg stays under 200 kB', svg.length < 200000, `${svg.length}`);
+ok('caption names the total',
+  svg.includes('>' + svgLawn.totalContributions.toLocaleString('en-US')
+    + ' contributions in the last year<'), String(svgLawn.totalContributions));
+ok('a user prefixes the caption',
+  lawnToSvg(svgLawn, { user: 'torvalds' }).includes('>@torvalds - '));
 
 console.log(failures ? `\n${failures} FAILED` : '\nall good');
 process.exit(failures ? 1 : 0);
