@@ -1,7 +1,10 @@
 import {
   createLawn, resetLawn, placeMower, tick, progress, monthAt, seasonIndexAt,
-  describeCell, formatTime, MONTH_NAMES, SEASON_WORD, ROWS, DEFAULT_SEED,
+  describeCell, formatTime, assignLevels, isoDay,
+  MONTH_NAMES, SEASON_WORD, ROWS, DEFAULT_SEED,
 } from './core/lawn.js';
+import { daysForYear, daysForRolling } from './core/contrib.js';
+import { initLoader, loadUser, setStatus } from './loader.js';
 import { Renderer2D } from './render2d/index.js';
 import { Renderer3D } from './render3d/index.js';
 
@@ -14,16 +17,41 @@ const startYaw = params.has('yaw') ? Number(params.get('yaw')) : 0;
 const startDist = params.has('dist') ? Number(params.get('dist')) : 0;
 const startCam = params.get('cam') === 'overview' ? 1 : 0;
 
-// Which years the picker offers. With real data this becomes the account's years.
-const THIS_YEAR = new Date().getFullYear();
-const YEARS = [null];
-for (let y = THIS_YEAR; y > THIS_YEAR - 6; y--) YEARS.push(y);
+const TODAY = isoDay(new Date());
+
+// Which years the picker offers. Without an account it is the last six; with
+// one it is exactly the years that profile's year picker shows.
+function demoYears() {
+  const y0 = new Date().getFullYear();
+  const list = [null];
+  for (let y = y0; y > y0 - 6; y--) list.push(y);
+  return list;
+}
+
+let source = null;              // null = the demo lawn, else a loaded account
+let years = demoYears();
+let loadedOnce = 0;
 
 const askedYear = params.has('year') ? Number(params.get('year')) : null;
-let year = YEARS.includes(askedYear) ? askedYear : null;
+let year = years.includes(askedYear) ? askedYear : null;
 
-// null year = rolling last 52 weeks; swap in daysForYear(...) for real data
-let lawn = createLawn(null, { seed, year });
+/** The rolling window. Prefer the API's own y=last (GitHub's own quartiles). */
+function rollingDays() {
+  if (source.last) return daysForRolling(source.last);
+  const win = daysForRolling(source.days).map((d) => ({ ...d }));
+  assignLevels(win);            // y=last was unavailable; re-level the window
+  return win;
+}
+
+/** null year = rolling last 52 weeks, otherwise one calendar year. */
+function lawnFor(y) {
+  if (!source) return createLawn(null, { seed, year: y });
+  return y === null
+    ? createLawn(rollingDays(), { year: null })
+    : createLawn(daysForYear(source.days, y, TODAY), { year: y });
+}
+
+let lawn = lawnFor(year);
 
 const flat = new Renderer2D(document.getElementById('flat'), lawn);
 const deep = new Renderer3D(document.getElementById('deep'), lawn);
@@ -109,10 +137,12 @@ function labelFor(y) { return y === null ? 'last year' : String(y); }
 
 function buildYears() {
   yearsEl.textContent = '';
-  for (const y of YEARS) {
+  for (const y of years) {
     const b = document.createElement('button');
     b.textContent = labelFor(y);
     b.setAttribute('aria-pressed', String(y === year));
+    // a year the account has, but with nothing in it: dimmed, still pickable
+    if (source && y !== null && source.totals[y] === 0) b.dataset.empty = '1';
     b.addEventListener('click', () => pickYear(y));
     yearsEl.appendChild(b);
   }
@@ -121,14 +151,13 @@ function buildYears() {
 function markYears() {
   const kids = yearsEl.children;
   for (let i = 0; i < kids.length; i++) {
-    kids[i].setAttribute('aria-pressed', String(YEARS[i] === year));
+    kids[i].setAttribute('aria-pressed', String(years[i] === year));
   }
 }
 
-function pickYear(y) {
-  if (y === year) return;
-  year = y;
-  lawn = createLawn(null, { seed, year });
+/** Put a freshly built lawn on screen, in both renderers. */
+function swapLawn(next, { first = false } = {}) {
+  lawn = next;
   flat.setLawn(lawn);
   deep.setLawn(lawn);
   endcard.hidden = true;
@@ -138,9 +167,29 @@ function pickYear(y) {
   auto = 0;
   markYears();
   refreshTotals();
+  if (startCol !== null && !Number.isNaN(startCol)) placeMower(lawn, startCol);
+  // the debug flags ran against the demo lawn; run them again on the real one
+  if (first) {
+    if (finishNow) prewarmFinish();
+    else if (autodrive) prewarm(3);
+  }
+}
+
+/** A real account can have years with nothing in them. Say so. */
+function announceEmpty() {
+  if (!source || lawn.mowable > 0) return;
+  const when = year === null ? 'the last year' : String(year);
+  setStatus('ok', 'nothing grew in ' + when + ' - pick another year');
+}
+
+function pickYear(y) {
+  if (y === year) return;
+  year = y;
+  swapLawn(lawnFor(y));
   const url = new URL(location.href);
   if (y === null) url.searchParams.delete('year'); else url.searchParams.set('year', String(y));
   history.replaceState(null, '', url);
+  announceEmpty();
   stage.focus();
 }
 
@@ -166,7 +215,10 @@ function regrow() {
 
 function copyBrag() {
   const when = year === null ? 'this year' : String(year);
-  const text = `I mowed my GitHub lawn: ${nf.format(lawn.totalContributions)} contributions`
+  const whose = source
+    ? (/s$/i.test(source.login) ? source.login + "'" : source.login + "'s")
+    : 'my';
+  const text = `I mowed ${whose} GitHub lawn: ${nf.format(lawn.totalContributions)} contributions`
     + ` from ${when} in ${formatTime(lawn.time)} - mow-your-commits`;
   const btn = $('brag');
   const done = () => { btn.textContent = 'copied!'; setTimeout(() => { btn.textContent = 'copy brag'; }, 1600); };
@@ -200,7 +252,8 @@ function updateHud(dt) {
     if (tagUntil <= 0) tagEl.hidden = true;
   }
 
-  if (lawn.finished && !endShown) {
+  // an account can have a year with nothing in it: that is not a win
+  if (lawn.finished && lawn.mowable > 0 && !endShown) {
     endShown = true;
     $('endline').textContent = `${nf.format(lawn.totalContributions)} contributions`
       + ` - ${lawn.cols} weeks - ${formatTime(lawn.time)}`;
@@ -283,6 +336,31 @@ function prewarmFinish() {
 
 if (finishNow) prewarmFinish();
 else if (autodrive) prewarm(3);
+
+// --- real data ------------------------------------------------------------
+// The demo lawn above is already built and drawn, so the stage is never blank
+// while a fetch is in flight; a loaded account swaps it out in place.
+
+initLoader({
+  onData(data) {
+    source = data;
+    years = [null, ...data.years].slice(0, 21);   // GitHub started in 2008
+    if (years.includes(askedYear)) year = askedYear;
+    else if (!years.includes(year)) year = null;
+    buildYears();
+    swapLawn(lawnFor(year), { first: !loadedOnce++ });
+    announceEmpty();
+  },
+  onDemo() {
+    source = null;
+    years = demoYears();
+    if (!years.includes(year)) year = null;
+    buildYears();
+    swapLawn(lawnFor(year));
+  },
+});
+
+if (params.get('user')) loadUser(params.get('user'), { fromUrl: true });
 
 let last = performance.now();
 function frame(ts) {
