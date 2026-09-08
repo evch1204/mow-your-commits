@@ -7,6 +7,7 @@ import {
 import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
 import {
   parseUserInput, normaliseApi, clampLevel, GithubError,
+  fetchContributions, readCache, writeCache, CACHE_TTL, STALE_OK, MAX_CACHED,
 } from '../src/core/github.js';
 import { readFileSync } from 'node:fs';
 
@@ -300,6 +301,144 @@ ok('daysForRolling has no repeats', new Set(roll.map((d) => d.date)).size === ro
 ok('daysForRolling has no voids', roll.every((d) => !d.void && d.date));
 ok('daysForRolling picks up the days it knows',
   roll.some((d) => d.count > 0));
+
+// --- github.js: fetching, with a fake fetch --------------------------------
+
+async function kindOf(fn) {
+  try { await fn(); return 'no error'; } catch (e) {
+    return e instanceof GithubError ? e.kind : 'not a GithubError';
+  }
+}
+
+/** A fetch that answers each ?y= with a status and a body. */
+function fakeFetch(plan) {
+  return async (url) => {
+    const y = new URL(url).searchParams.get('y');
+    const r = plan[y];
+    if (typeof r === 'function') return r();
+    return {
+      ok: r.status >= 200 && r.status < 300,
+      status: r.status,
+      json: async () => r.body,
+    };
+  };
+}
+
+const body = fixture('jogruber-torvalds');
+const okBoth = { all: { status: 200, body }, last: { status: 200, body } };
+
+const fetched = await fetchContributions('torvalds', { fetch: fakeFetch(okBoth), today: TODAY });
+ok('fetchContributions returns a normalised lawn source',
+  fetched.login === 'torvalds' && fetched.days.length > 0
+    && fetched.years.join(',') === '2026,2025,2024' && Array.isArray(fetched.last));
+ok('fetchContributions stamps the fetch time', fetched.fetchedAt > 0);
+
+ok('404 is notfound',
+  await kindOf(() => fetchContributions('nobody', { fetch: fakeFetch({ all: { status: 404 }, last: { status: 404 } }) })) === 'notfound');
+ok('429 is ratelimited',
+  await kindOf(() => fetchContributions('torvalds', { fetch: fakeFetch({ all: { status: 429 }, last: { status: 429 } }) })) === 'ratelimited');
+ok('400 is invalid',
+  await kindOf(() => fetchContributions('torvalds', { fetch: fakeFetch({ all: { status: 400 }, last: { status: 400 } }) })) === 'invalid');
+ok('500 is network',
+  await kindOf(() => fetchContributions('torvalds', { fetch: fakeFetch({ all: { status: 503 }, last: { status: 503 } }) })) === 'network');
+ok('a throwing fetch is network',
+  await kindOf(() => fetchContributions('torvalds', { fetch: async () => { throw new TypeError('Failed to fetch'); } })) === 'network');
+ok('a non-JSON body is malformed',
+  await kindOf(() => fetchContributions('torvalds', {
+    fetch: fakeFetch({ all: () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('bad'); } }), last: { status: 200, body } }),
+  })) === 'malformed');
+ok('rubbish JSON is malformed',
+  await kindOf(() => fetchContributions('torvalds', { fetch: fakeFetch({ all: { status: 200, body: { nope: 1 } }, last: { status: 200, body } }) })) === 'malformed');
+
+const halfDown = await fetchContributions('torvalds', {
+  fetch: fakeFetch({ all: { status: 200, body }, last: { status: 500 } }), today: TODAY,
+});
+ok('y=last failing alone still resolves', halfDown.days.length > 0 && halfDown.last === null);
+
+// --- github.js: the localStorage cache ------------------------------------
+
+function fakeStorage(throwOnSet = false) {
+  const m = new Map();
+  return {
+    map: m,
+    get length() { return m.size; },
+    key(i) { return [...m.keys()][i] ?? null; },
+    getItem(k) { return m.has(k) ? m.get(k) : null; },
+    setItem(k, v) {
+      if (throwOnSet && m.size >= throwOnSet) {
+        const e = new Error('quota'); e.name = 'QuotaExceededError'; throw e;
+      }
+      m.set(k, String(v));
+    },
+    removeItem(k) { m.delete(k); },
+  };
+}
+
+const store = fakeStorage();
+const T0 = 1_800_000_000_000;
+ok('writeCache writes', writeCache('Torvalds', fetched, T0, store) === true);
+ok('the cache key is lowercased', store.key(0) === 'mow:gh:v1:torvalds', store.key(0));
+
+const hit = readCache('TORVALDS', T0 + 1000, store);
+ok('readCache round-trips the days',
+  hit && hit.fresh === true && hit.data.days.length === fetched.days.length
+    && hit.data.days[0].date === fetched.days[0].date
+    && hit.data.days[0].count === fetched.days[0].count
+    && hit.data.days[0].level === fetched.days[0].level);
+ok('readCache round-trips the year list',
+  hit.data.years.join(',') === '2026,2025,2024' && hit.data.totals[2024] === 0);
+ok('readCache round-trips the rolling window',
+  hit.data.last && hit.data.last.length === fetched.last.length);
+ok('fresh flips after the TTL', readCache('torvalds', T0 + CACHE_TTL + 1, store).fresh === false);
+ok('a stale-but-usable entry still comes back',
+  readCache('torvalds', T0 + STALE_OK - 1000, store) !== null);
+ok('an ancient entry is dropped', readCache('torvalds', T0 + STALE_OK + 1000, store) === null);
+ok('an unknown login misses', readCache('nobody-here', T0, store) === null);
+
+const many = fakeStorage();
+for (let i = 0; i < MAX_CACHED + 4; i++) {
+  writeCache('user' + i, { days: [], last: null, years: [], totals: {} }, T0 + i * 1000, many);
+}
+ok('the cache evicts down to MAX_CACHED', many.length === MAX_CACHED, String(many.length));
+ok('eviction keeps the newest', readCache('user' + (MAX_CACHED + 3), T0 + 99000, many) !== null);
+ok('eviction drops the oldest', readCache('user0', T0 + 99000, many) === null);
+
+const tight = fakeStorage(2);
+writeCache('a', { days: [], last: null, years: [], totals: {} }, T0, tight);
+writeCache('b', { days: [], last: null, years: [], totals: {} }, T0, tight);
+ok('a quota error clears the lawns and keeps the new one',
+  writeCache('c', { days: [], last: null, years: [], totals: {} }, T0, tight) === true
+    && tight.length === 1 && readCache('c', T0, tight) !== null, String(tight.length));
+
+ok('no storage is not an error',
+  readCache('torvalds', T0, null) === null
+    && writeCache('torvalds', fetched, T0, null) === false);
+
+// --- optional: hit the real API -------------------------------------------
+//   node scripts/smoke.mjs --live torvalds
+// Not part of the default run: it needs the network and the third-party API.
+
+const liveAt = process.argv.indexOf('--live');
+if (liveAt !== -1) {
+  const who = process.argv[liveAt + 1] || 'torvalds';
+  console.log('\n  live: fetching ' + who + ' from the real API');
+  try {
+    const live = await fetchContributions(who, { today: isoDay(new Date()) });
+    ok('live: got days', live.days.length > 5000, String(live.days.length));
+    ok('live: the year list goes back to 2011', live.years.includes(2011), live.years.join(','));
+    ok('live: days are sorted and levels agree',
+      live.days.every((d, i) => (i === 0 || live.days[i - 1].date <= d.date)
+        && d.level === clampLevel(d.level, d.count)));
+    ok('live: nothing after today', !live.days.some((d) => d.date > isoDay(new Date())));
+    ok('live: the rolling window came back', Array.isArray(live.last) && live.last.length > 300,
+      live.last ? String(live.last.length) : 'null');
+    const liveLawn = createLawn(daysForRolling(live.last || live.days), { year: null });
+    ok('live: it builds a lawn', liveLawn.cols === COLS && liveLawn.mowable > 0,
+      liveLawn.mowable + ' mowable');
+  } catch (e) {
+    ok('live: fetch succeeded', false, e.kind ? e.kind + ' - ' + e.message : String(e));
+  }
+}
 
 console.log(failures ? `\n${failures} FAILED` : '\nall good');
 process.exit(failures ? 1 : 0);

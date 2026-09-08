@@ -94,3 +94,156 @@ export function normaliseApi(json, today = null) {
 
   return { days, years, totals };
 }
+
+// --- fetching --------------------------------------------------------------
+
+const TIMEOUT = 15000;
+
+function mapStatus(status) {
+  if (status === 404) return new GithubError('notfound', 'no such GitHub user');
+  if (status === 429) return new GithubError('ratelimited', 'too many requests');
+  if (status === 400) return new GithubError('invalid', 'the API rejected that name');
+  return new GithubError('network', 'the contributions API answered ' + status, { status });
+}
+
+async function getJson(url, doFetch, signal) {
+  let res;
+  try {
+    res = await doFetch(url, {
+      signal: signal || (typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+        ? AbortSignal.timeout(TIMEOUT)
+        : undefined),
+      headers: { accept: 'application/json' },
+    });
+  } catch (err) {
+    // offline, DNS, CORS, abort: all indistinguishable from here
+    throw new GithubError('network', 'could not reach the contributions API', { cause: err });
+  }
+  if (!res.ok) throw mapStatus(res.status);
+  try {
+    return await res.json();
+  } catch (err) {
+    throw new GithubError('malformed', 'the contributions API sent non-JSON', { cause: err });
+  }
+}
+
+/**
+ * The two public calls, in parallel: y=all for the calendar years and the year
+ * list, y=last for GitHub's rolling window (its levels are quartiles over that
+ * window, which is what the default profile view shows). If y=last alone fails
+ * the result still resolves with last === null and main.js re-levels a window
+ * of the full history instead.
+ * @returns {Promise<{login, days, years, totals, last, fetchedAt}>}
+ */
+export async function fetchContributions(login, opts = {}) {
+  const doFetch = opts.fetch || globalThis.fetch;
+  const today = opts.today || null;
+  const url = (y) => API + encodeURIComponent(login) + '?y=' + y;
+  const get = (y) => getJson(url(y), doFetch, opts.signal);
+
+  const [all, last] = await Promise.allSettled([get('all'), get('last')]);
+  if (all.status === 'rejected') throw all.reason;
+
+  const data = normaliseApi(all.value, today);
+  data.login = login;
+  data.last = null;
+  if (last.status === 'fulfilled') {
+    try { data.last = normaliseApi(last.value, today).days; } catch { data.last = null; }
+  }
+  data.fetchedAt = Date.now();
+  return data;
+}
+
+// --- cache -----------------------------------------------------------------
+// One entry per login in localStorage. Days are stored as [date, count, level]
+// triplets: torvalds' 16 years come to ~130 KB that way, and a warm reload
+// then costs no request at all.
+
+export const CACHE_VERSION = 1;
+export const CACHE_PREFIX = 'mow:gh:v' + CACHE_VERSION + ':';
+export const CACHE_TTL = 3600e3;          // an hour, same as the API's own cache
+export const STALE_OK = 7 * 86400e3;      // older than fresh, still better than nothing
+export const MAX_CACHED = 6;
+
+function defaultStorage() {
+  try { return globalThis.localStorage || null; } catch { return null; }   // private mode throws
+}
+
+const cacheKey = (login) => CACHE_PREFIX + String(login).toLowerCase();
+const pack = (days) => days.map((d) => [d.date, d.count, d.level]);
+const unpack = (rows) => (Array.isArray(rows)
+  ? rows.map((r) => ({ date: r[0], count: r[1] || 0, level: r[2] || 0 }))
+  : null);
+
+function cacheKeys(storage) {
+  const keys = [];
+  for (let i = 0; i < storage.length; i++) {
+    const k = storage.key(i);
+    if (k && k.startsWith('mow:gh:v')) keys.push(k);
+  }
+  return keys;
+}
+
+/** @returns {{data, fresh, age}|null} - `fresh` means no request is needed. */
+export function readCache(login, now = Date.now(), storage = defaultStorage()) {
+  if (!storage) return null;
+  let raw;
+  try { raw = storage.getItem(cacheKey(login)); } catch { return null; }
+  if (!raw) return null;
+  let entry;
+  try { entry = JSON.parse(raw); } catch { return null; }
+  if (!entry || entry.v !== CACHE_VERSION || !Array.isArray(entry.days)) return null;
+  const age = now - (entry.at || 0);
+  if (age < 0 || age > STALE_OK) return null;
+  return {
+    fresh: age < CACHE_TTL,
+    age,
+    data: {
+      login: entry.login,
+      days: unpack(entry.days) || [],
+      last: unpack(entry.last),
+      years: Array.isArray(entry.years) ? entry.years : [],
+      totals: entry.totals || {},
+      fetchedAt: entry.at,
+    },
+  };
+}
+
+export function writeCache(login, data, now = Date.now(), storage = defaultStorage()) {
+  if (!storage) return false;
+  const value = JSON.stringify({
+    v: CACHE_VERSION, at: now, login,
+    years: data.years, totals: data.totals,
+    days: pack(data.days), last: data.last ? pack(data.last) : null,
+  });
+  const key = cacheKey(login);
+  const evict = () => {
+    let keys = cacheKeys(storage).filter((k) => k !== key);
+    if (keys.length < MAX_CACHED) return;
+    const aged = keys.map((k) => {
+      let at = 0;
+      try { at = (JSON.parse(storage.getItem(k)) || {}).at || 0; } catch { at = 0; }
+      return { k, at };
+    }).sort((a, b) => a.at - b.at);
+    for (const e of aged.slice(0, aged.length - (MAX_CACHED - 1))) {
+      try { storage.removeItem(e.k); } catch { /* ignore */ }
+    }
+  };
+  try {
+    evict();
+    storage.setItem(key, value);
+    return true;
+  } catch {
+    // quota: drop every lawn we've cached and keep only this one
+    try {
+      for (const k of cacheKeys(storage)) storage.removeItem(k);
+      storage.setItem(key, value);
+      return true;
+    } catch { return false; }
+  }
+}
+
+export function clearCache(storage = defaultStorage()) {
+  if (!storage) return;
+  try { for (const k of cacheKeys(storage)) storage.removeItem(k); } catch { /* ignore */ }
+}
