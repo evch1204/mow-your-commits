@@ -130,6 +130,20 @@ function setView(name) {
   }
   camBtn.hidden = name !== 'deep';
   if (name === 'deep') deep.resize();
+  fitYears();
+}
+
+/**
+ * The flat board is a 4:1 strip about 230px tall, but a real account brings
+ * sixteen years: left alone the list towers beside the lawn and leaves a hole
+ * where the page should end. Keep it the height of the board it belongs to.
+ * On a phone the years are a scrolling row instead, so leave that alone.
+ */
+function fitYears() {
+  const stacked = typeof window.matchMedia === 'function'
+    && window.matchMedia('(max-width: 820px)').matches;
+  yearsEl.style.maxHeight = stacked || active !== 'flat' || !stage.clientHeight
+    ? '' : stage.clientHeight + 'px';
 }
 
 function setCamera(mode) {
@@ -177,6 +191,7 @@ function swapLawn(next, { first = false } = {}) {
   markYears();
   refreshTotals();
   refreshPreview();     // the README picture is of the lawn on screen
+  fitYears();           // a wider year brings a taller board
   if (startCol !== null && !Number.isNaN(startCol)) placeMower(lawn, startCol);
   // the debug flags ran against the demo lawn; run them again on the real one
   if (first) {
@@ -396,7 +411,7 @@ function confetti() {
   }
 }
 
-window.addEventListener('resize', () => deep.resize());
+window.addEventListener('resize', () => { deep.resize(); fitYears(); });
 
 /** On narrow screens the flat lawn scrolls sideways; keep the mower in frame. */
 function followMower() {
@@ -517,8 +532,12 @@ initLoader({
 if (params.get('user')) loadUser(params.get('user'), { fromUrl: true });
 
 let last = performance.now();
+let fitted = false;
 function frame(ts) {
   requestAnimationFrame(frame);
+  // the canvas gets its height from an aspect-ratio, so the first honest
+  // measurement is only available after the first layout
+  if (!fitted) { fitted = true; fitYears(); }
   const dt = Math.min(0.05, (ts - last) / 1000);
   last = ts;
 
