@@ -803,7 +803,6 @@ export class Renderer2D {
 
   draw(ts) {
     const { ctx, lawn } = this;
-    const cols = lawn.cols;
     const dt = Math.min(0.05, this.lastTs ? (ts - this.lastTs) / 1000 : 1 / 60);
     this.lastTs = ts;
     this.now += dt;
@@ -814,7 +813,26 @@ export class Renderer2D {
     ctx.fillStyle = PAPER;
     ctx.fillRect(0, 0, this.width, this.height);
 
-    // month labels across the top, like GitHub
+    this.drawHeader();
+    this.drawTiles();
+    // tracks sit under the grass, so they only show where you have cut
+    this.drawTracks(dt);
+    this.drawTufts();
+    this.drawDressing();
+    this.drawWeather(dt);
+    this.mower(dt);
+    this.drawClippings();
+    this.drawDayLabels();
+
+    this.drawPopups(dt);
+    this.drawTag(dt);
+    this.drawLegend();
+  }
+
+  /** Month labels across the top, like GitHub, and the fence under them. */
+  drawHeader() {
+    const { ctx, lawn } = this;
+    const cols = lawn.cols;
     this.seed = this.boil * 7919 + 13;
     ctx.font = `${GEOM.MONTH_SIZE}px ${FONT}`;
     ctx.fillStyle = PENCIL;
@@ -847,8 +865,11 @@ export class Renderer2D {
 
     // dirt bed under the tiles, coloured by the climate of each column
     this.drawBed(gw, lawn.rows * PITCH - GAP);
+  }
 
-    // tiles first, then grass, so tufts spill over their neighbours
+  /** Tiles first, then grass on top, so tufts spill over their neighbours. */
+  drawTiles() {
+    const { ctx, lawn } = this;
     for (let i = 0; i < lawn.cells.length; i++) {
       const c = lawn.cells[i];
       this.seed = (c.col * 31 + c.row * 7) * 131 + this.boil * 17 + 1;
@@ -863,18 +884,22 @@ export class Renderer2D {
         ctx.fill();
       }
     }
+  }
 
-    // tracks sit under the grass, so they only show where you have cut
-    this.drawTracks(dt);
-
+  /** The overgrown grass standing on every day with something in it. */
+  drawTufts() {
+    const { lawn } = this;
     for (const c of lawn.cells) {
       if (c.void || !c.level) continue;
       this.seed = (c.col * 31 + c.row * 7) * 131 + this.boil * 17 + 1;
       this.rnd(); this.rnd();
       this.drawGrass(this.tileX(c.col), this.tileY(c.row), c, seasonIndexOfCol(lawn, c.col));
     }
+  }
 
-    // seasonal dressing, only on bare tiles so it never hides grass
+  /** Seasonal dressing, only on bare tiles so it never hides grass. */
+  drawDressing() {
+    const { ctx, lawn } = this;
     for (const c of lawn.cells) {
       if (c.void || c.level !== 0) continue;
       const s = seasonIndexOfCol(lawn, c.col);
@@ -892,11 +917,11 @@ export class Renderer2D {
         ctx.beginPath(); ctx.ellipse(cx, cy, 2.6, 1.6, 0.6, 0, 7); ctx.fill();
       }
     }
+  }
 
-    this.drawWeather(dt);
-    this.mower(dt);
-
-    // clippings tumbling out of the chute
+  /** Clippings tumbling out of the chute. */
+  drawClippings() {
+    const { ctx } = this;
     for (let i = this.clippings.length - 1; i >= 0; i--) {
       const q = this.clippings[i];
       q.x += q.vx; q.y += q.vy;
@@ -913,8 +938,11 @@ export class Renderer2D {
       ctx.restore();
       ctx.globalAlpha = 1;
     }
+  }
 
-    // weekday labels last, with a paper halo, so the parked mower never hides them
+  /** Mon / Wed / Fri, with a paper halo, so the parked mower never hides them. */
+  drawDayLabels() {
+    const { ctx } = this;
     ctx.font = `${GEOM.LABEL_SIZE}px ${FONT}`;
     ctx.textBaseline = 'middle';
     ctx.lineWidth = 4; ctx.lineJoin = 'round';
@@ -926,9 +954,5 @@ export class Renderer2D {
       ctx.fillText(d, GEOM.LABEL_X, y);
     });
     ctx.textBaseline = 'alphabetic';
-
-    this.drawPopups(dt);
-    this.drawTag(dt);
-    this.drawLegend();
   }
 }

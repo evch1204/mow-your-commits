@@ -14,7 +14,10 @@ import {
 } from './share.js';
 
 const params = new URLSearchParams(location.search);
-const seed = Number(params.get('seed')) || DEFAULT_SEED;
+// ?seed=0 is a seed like any other, so ask whether it is there rather than
+// whether it is truthy; junk (?seed=abc) still falls back.
+const askedSeed = params.has('seed') ? Number(params.get('seed')) : NaN;
+const seed = Number.isFinite(askedSeed) ? askedSeed : DEFAULT_SEED;
 const autodrive = params.get('autodrive') === '1';
 const finishNow = params.get('finish') === '1';   // debug: jump to the end card
 const startCol = params.has('start') ? Number(params.get('start')) : null;
@@ -70,6 +73,11 @@ const tagEl = $('tag');
 const endcard = $('endcard');
 const camBtn = $('cam');
 const yearsEl = $('years');
+// the HUD is rewritten every frame, so its seven fields are looked up once
+const hud = {
+  pct: $('pct'), bar: $('barfill'), month: $('month'), weather: $('weather'),
+  temp: $('temp'), mowed: $('cmowed'), timer: $('timer'),
+};
 
 const input = { up: false, down: false, left: false, right: false };
 const keymap = {
@@ -270,13 +278,13 @@ function copyBrag() {
 }
 
 // --- share / export ------------------------------------------------------
+// index.html is this file's contract: every id it wires up below is assumed to
+// be there, the same way #regrow and #total are. The three exceptions are the
+// README preview <img>, the workflow listing and the "mow your own" strip,
+// which a cut-down page (the og shot, an embed) can be built without; each is
+// guarded where it is used, and nowhere else.
 
 let previewUrl = '';
-
-function on(id, ev, fn) {
-  const el = $(id);
-  if (el) el.addEventListener(ev, fn);
-}
 
 /** The exported picture: this lawn, as a standalone SVG. */
 function exportSvg(mowed, opts) {
@@ -337,40 +345,46 @@ async function renderPng(btn, mowed) {
   btn.disabled = false;
 }
 
-if ($('yaml')) $('yaml').textContent = workflowYaml();
+$('dlsvg').addEventListener('click', () => {
+  downloadSvg(exportSvg(exportState()), exportName() + '.svg');
+});
+$('dlpng').addEventListener('click', (e) => renderPng(e.currentTarget, exportState()));
+$('cpmd').addEventListener('click', (e) => copy(markdownSnippet(currentUser()), e.currentTarget));
+$('dlcard').addEventListener('click', (e) => renderPng(e.currentTarget, 'as-is'));
 
-on('dlsvg', 'click', () => downloadSvg(exportSvg(exportState()), exportName() + '.svg'));
-on('dlpng', 'click', (e) => renderPng(e.currentTarget, exportState()));
-on('cpmd', 'click', (e) => copy(markdownSnippet(currentUser()), e.currentTarget));
-on('cpyml', 'click', (e) => copy(workflowYaml(), e.currentTarget));
-
-
-on('sharex', 'click', () => {
+const shareBtn = $('sharex');
+shareBtn.addEventListener('click', () => {
   const text = bragText(lawn, currentUser(), periodLabel(lawn), whoseLawn());
   if (navigator.share) { navigator.share({ text }).catch(() => {}); return; }
   window.open(xUrl(text), '_blank', 'noopener');
 });
-if (navigator.share && $('sharex')) $('sharex').textContent = 'share';
+if (navigator.share) shareBtn.textContent = 'share';
 
-on('dlcard', 'click', (e) => renderPng(e.currentTarget, 'as-is'));
+// optional: the workflow listing and the button that copies it
+if ($('yaml')) {
+  $('yaml').textContent = workflowYaml();
+  $('cpyml').addEventListener('click', (e) => copy(workflowYaml(), e.currentTarget));
+}
 
-on('tryme', 'click', () => {
-  // the loader owns the username box; on a page built without it, ask for a
-  // name and reload on ?user=
-  const box = $('user');
-  if (box) {
-    box.focus();
-    box.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    return;
-  }
-  const name = window.prompt('github username');
-  if (name && name.trim()) location.search = '?user=' + encodeURIComponent(name.trim());
-});
+// optional: the try strip, which is for the demo lawn. Whether an account is on
+// screen is body[data-source], which the loader keeps honest: ?user= that failed
+// to load still leaves the demo up, and "back to the demo" brings the strip back.
+if ($('try')) {
+  $('try').hidden = false;
+  $('tryme').addEventListener('click', () => {
+    // the loader owns the username box; on a page built without it, ask for a
+    // name and reload on ?user=
+    const box = $('user');
+    if (box) {
+      box.focus();
+      box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return;
+    }
+    const name = window.prompt('github username');
+    if (name && name.trim()) location.search = '?user=' + encodeURIComponent(name.trim());
+  });
+}
 
-// The try strip is for the demo lawn. Whether an account is on screen is
-// body[data-source], which the loader keeps honest: ?user= that failed to load
-// still leaves the demo up, and "back to the demo" brings the strip back.
-if ($('try')) $('try').hidden = false;
 if (ogShot) document.body.dataset.og = '1';
 
 
@@ -388,13 +402,13 @@ if (startCol !== null && !Number.isNaN(startCol)) placeMower(lawn, startCol);
 
 function updateHud(dt) {
   const pct = Math.round(progress(lawn) * 100);
-  $('pct').textContent = pct + '%';
-  $('barfill').style.width = pct + '%';
-  $('month').textContent = MONTH_NAMES[monthAt(lawn, lawn.mower.x)];
-  $('weather').textContent = SEASON_WORD[seasonIndexAt(lawn, lawn.mower.x)];
-  $('temp').textContent = degrees(tempAt(lawn, lawn.mower.x));
-  $('cmowed').textContent = nf.format(lawn.mowedContributions);
-  $('timer').textContent = formatTime(lawn.time);
+  hud.pct.textContent = pct + '%';
+  hud.bar.style.width = pct + '%';
+  hud.month.textContent = MONTH_NAMES[monthAt(lawn, lawn.mower.x)];
+  hud.weather.textContent = SEASON_WORD[seasonIndexAt(lawn, lawn.mower.x)];
+  hud.temp.textContent = degrees(tempAt(lawn, lawn.mower.x));
+  hud.mowed.textContent = nf.format(lawn.mowedContributions);
+  hud.timer.textContent = formatTime(lawn.time);
 
   if (tagUntil > 0) {
     tagUntil -= dt;

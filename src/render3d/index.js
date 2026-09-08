@@ -160,6 +160,7 @@ export class Renderer3D {
     this.dummy = new THREE.Object3D();
     this.tmpColor = new THREE.Color();
     this.tmpColorB = new THREE.Color();
+    this.buildColors();
 
     this.buildSky();
     this.buildTiles();
@@ -169,6 +170,24 @@ export class Renderer3D {
     this.buildBoard();
     this.bindOrbit();
     this.applyLawn();
+  }
+
+  /**
+   * The four seasons of sky, ground and light as THREE.Colors, plus the
+   * scratch colours updateWeather mixes them into. Built once: every frame
+   * blends the same five palettes.
+   */
+  buildColors() {
+    this.topColors = SKY_TOP.map((h) => new THREE.Color(h));
+    this.horizonColors = SKY_HORIZON.map((h) => new THREE.Color(h));
+    this.hemiColors = HEMI.map((h) => new THREE.Color(h));
+    this.meadowColors = MEADOW_BY_SEASON.map((h) => new THREE.Color(h));
+    this.sunColors = SUN_LIGHT.map((h) => new THREE.Color(h));
+    this.cTop = new THREE.Color();
+    this.cHorizon = new THREE.Color();
+    this.cHemi = new THREE.Color();
+    this.cMeadow = new THREE.Color();
+    this.cSun = new THREE.Color();
   }
 
   // --- doodle helpers --------------------------------------------------
@@ -632,6 +651,8 @@ export class Renderer3D {
   }
 
   // --- the riding mower --------------------------------------------------
+  // `rig` is the THREE group this builds; `lawn.mower` is the sim object that
+  // says where it stands.
 
   buildMower() {
     const g = new THREE.Group();
@@ -736,7 +757,7 @@ export class Renderer3D {
     const pipe = this.inked(new THREE.CylinderGeometry(0.05, 0.05, 0.26, 8), grey, 1.1);
     pipe.position.set(-0.3, 0.62, -0.12); g.add(pipe);
 
-    this.mower = g;
+    this.rig = g;
     this.tilt = 0;
     this.lean = 0;
     this.scene.add(g);
@@ -1156,7 +1177,15 @@ export class Renderer3D {
     const wm = this.weatherMix;
     for (let i = 0; i < 4; i++) wm[i] += ((i === want ? 1 : 0) - wm[i]) * k;
 
-    // sky, ground, fog and lights all follow the mix
+    this.updateSky(wm);
+    this.stepSnow(wm, tx, tz);
+    this.stepLeaves(wm, tx, tz);
+    this.stepFluff(wm, tx, tz);
+    this.updateSkyProps(wm, tx, camY);
+  }
+
+  /** Sky, ground, fog and lights all follow the mix. */
+  updateSky(wm) {
     const top = this.cTop.setRGB(0, 0, 0);
     const horizon = this.cHorizon.setRGB(0, 0, 0);
     const hemi = this.cHemi.setRGB(0, 0, 0);
@@ -1185,8 +1214,10 @@ export class Renderer3D {
     // the meadow keeps its own colour now; the fog is what makes it a horizon
     this.apronMat.color.copy(meadow);
     if (this.hillMat) this.hillMat.color.copy(meadow).multiplyScalar(0.9);
+  }
 
-    // snow, always around the mower so it is weather and not scenery
+  /** Snow, always around the mower so it is weather and not scenery. */
+  stepSnow(wm, tx, tz) {
     this.snowMat.opacity = wm[0];
     this.snow.visible = wm[0] > 0.01;
     if (this.snow.visible) {
@@ -1202,8 +1233,10 @@ export class Renderer3D {
       }
       this.snowGeo.attributes.position.needsUpdate = true;
     }
+  }
 
-    // the same pool is autumn leaves and spring blossom, whichever is nearer
+  /** One pool, autumn leaves or spring blossom, whichever season is nearer. */
+  stepLeaves(wm, tx, tz) {
     const spring = wm[1] > wm[3];
     const falling = clamp(wm[3] + 0.6 * wm[1], 0, 1);
     this.leafMat.opacity = falling;
@@ -1235,8 +1268,10 @@ export class Renderer3D {
       }
       this.leaves.instanceMatrix.needsUpdate = true;
     }
+  }
 
-    // summer: dandelion fluff drifting up out of the grass
+  /** Summer: dandelion fluff drifting up out of the grass. */
+  stepFluff(wm, tx, tz) {
     this.fluffMat.opacity = wm[2];
     this.fluff.visible = wm[2] > 0.01;
     if (this.fluff.visible) {
@@ -1252,8 +1287,10 @@ export class Renderer3D {
       }
       this.fluffGeo.attributes.position.needsUpdate = true;
     }
+  }
 
-    // sun and clouds hang high behind the fence, anchored to where you are
+  /** Sun, clouds and trees hang behind the fence, anchored to where you are. */
+  updateSkyProps(wm, tx, camY) {
     const sunny = clamp(wm[2] + wm[1] * 0.5 + wm[3] * 0.25, 0, 1);
     this.sun.material.opacity = sunny;
     this.sun.visible = sunny > 0.02;
@@ -1288,25 +1325,10 @@ export class Renderer3D {
   }
 
   draw(ts) {
-    const { lawn, mower } = this;
-    const m = lawn.mower;
     const dt = this.lastTs ? Math.min(0.05, (ts - this.lastTs) / 1000) : 1 / 60;
     this.lastTs = ts;
     this.time += dt;
     this.checkSize();
-
-    if (!this.topColors) {
-      this.topColors = SKY_TOP.map((h) => new THREE.Color(h));
-      this.horizonColors = SKY_HORIZON.map((h) => new THREE.Color(h));
-      this.hemiColors = HEMI.map((h) => new THREE.Color(h));
-      this.meadowColors = MEADOW_BY_SEASON.map((h) => new THREE.Color(h));
-      this.sunColors = SUN_LIGHT.map((h) => new THREE.Color(h));
-      this.cTop = new THREE.Color();
-      this.cHorizon = new THREE.Color();
-      this.cHemi = new THREE.Color();
-      this.cMeadow = new THREE.Color();
-      this.cSun = new THREE.Color();
-    }
 
     if (ts - this.lastBoil > 110) { this.seedVal += 1.7; this.lastBoil = ts; }
     for (const s of this.shaders) {
@@ -1314,36 +1336,55 @@ export class Renderer3D {
       s.uniforms.uTime.value = this.time;
     }
 
-    // cells still playing their mow animation
-    if (this.anim.size) {
-      for (const i of Array.from(this.anim)) {
-        this.setCell(i);
-        const at = this.cutAt.get(i);
-        if (lawn.cells[i].mowT >= 1 && (at === undefined || this.time - at > 1.2)) {
-          this.anim.delete(i);
-          this.cutAt.delete(i);
-        }
-      }
-      this.flagDirty();
-    }
+    this.stepMowAnimations();
+    this.poseMower();
+    this.stepParticles(dt);
+    this.stepPopups(dt);
+    this.updateCamera(dt);
+    this.updateWeather(dt, this.lookAt.x, this.lookAt.z, this.camera.position.y);
+    this.snapped = true;
 
-    // mower pose. lawn heading (cos a, sin a) in (x, z) -> three rotation.y = pi/2 - a
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Cells still playing their mow animation, and the flash that follows it. */
+  stepMowAnimations() {
+    const cells = this.lawn.cells;
+    if (!this.anim.size) return;
+    for (const i of Array.from(this.anim)) {
+      this.setCell(i);
+      const at = this.cutAt.get(i);
+      if (cells[i].mowT >= 1 && (at === undefined || this.time - at > 1.2)) {
+        this.anim.delete(i);
+        this.cutAt.delete(i);
+      }
+    }
+    this.flagDirty();
+  }
+
+  /** Lawn heading (cos a, sin a) in (x, z) -> three rotation.y = pi/2 - a. */
+  poseMower() {
+    const m = this.lawn.mower;
+    const rig = this.rig;
     const idle = Math.sin(this.time * 60) * 0.004;
-    mower.position.set(this.wx(m.x), idle + Math.abs(m.vel) * 0.06, this.wz(m.z));
-    mower.rotation.y = Math.PI / 2 - m.angle;
+    rig.position.set(this.wx(m.x), idle + Math.abs(m.vel) * 0.06, this.wz(m.z));
+    rig.rotation.y = Math.PI / 2 - m.angle;
     // a few degrees of nose-up under throttle and a hint of body roll in turns
     this.tilt += (m.acc * 6 - this.tilt) * 0.15;
     this.lean += ((m.turn || 0) * Math.min(1, Math.abs(m.vel) * 6) * 0.05 - this.lean) * 0.12;
-    mower.rotation.x = -this.tilt;
-    mower.rotation.z = this.lean;
-    mower.updateMatrixWorld();
+    rig.rotation.x = -this.tilt;
+    rig.rotation.z = this.lean;
+    rig.updateMatrixWorld();
     for (const w of this.frontWheels) w.rotation.x += m.vel * 8;
     for (const w of this.rearWheels) w.rotation.x += m.vel * 3.7;   // bigger wheel, slower roll
     this.deck.rotation.y += Math.abs(m.vel) * 2 + 0.04;
     this.steer.rotation.z = -(m.turn || 0) * 0.5;
     this.driver.position.y = Math.sin(this.time * 9) * 0.008;
+  }
 
-    // exhaust puffs while accelerating
+  /** Exhaust puffs while accelerating, then one ageing loop for all debris. */
+  stepParticles(dt) {
+    const m = this.lawn.mower;
     this.puffAt -= dt;
     if (m.acc > 0 && this.puffAt <= 0) {
       this.puffAt = 0.5;
@@ -1361,7 +1402,6 @@ export class Renderer3D {
       }
     }
 
-    // clippings and puffs share one loop
     for (let i = this.clippings.length - 1; i >= 0; i--) {
       const c = this.clippings[i];
       c.position.add(c.userData.v);
@@ -1378,8 +1418,10 @@ export class Renderer3D {
         this.clippings.splice(i, 1);
       }
     }
+  }
 
-    // +N popups
+  /** The +N labels, rising and fading. */
+  stepPopups(dt) {
     for (let i = this.popups.length - 1; i >= 0; i--) {
       const p = this.popups[i];
       p.age += dt;
@@ -1393,8 +1435,11 @@ export class Renderer3D {
         this.popups.splice(i, 1);
       }
     }
+  }
 
-    // --- camera: chase <-> overview, each with its own look-around offset ---
+  /** Chase <-> overview, each with its own look-around offset. */
+  updateCamera(dt) {
+    const m = this.lawn.mower;
     if (m.acc > 0) this.gasHeld += dt; else this.gasHeld = 0;
     if (this.gasHeld > 0.5 && !this.camMode) {
       // driving pulls the framing back behind the mower
@@ -1453,10 +1498,5 @@ export class Renderer3D {
     this.lookAt.y += (1.95 + (OVER_LOOK_Y - 1.95) * b - this.lookAt.y) * s;
     this.lookAt.z += (lz + (OVER_LOOK_Z - lz) * b - this.lookAt.z) * s;
     cam.lookAt(this.lookAt);
-
-    this.updateWeather(dt, this.lookAt.x, this.lookAt.z, cam.position.y);
-    this.snapped = true;
-
-    this.renderer.render(this.scene, cam);
   }
 }
