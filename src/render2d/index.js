@@ -1,7 +1,8 @@
-import { MONTH_NAMES, seasonIndexOfCol, describeCell } from '../core/lawn.js';
+import { MONTH_NAMES, SEASON_GLYPH, SEASON_OF_MONTH, seasonIndexOfCol, describeCell } from '../core/lawn.js';
 import {
-  INK, PAPER, CREAM, ORANGE, PENCIL, DIRT, AUTUMN_BLADE, FLOWERS,
-  tileColor, stripe, bladeColor, clipColor, mix,
+  INK, PAPER, CREAM, ORANGE, PENCIL, SUN, AUTUMN_BLADE, FLOWERS,
+  DANDELION, FLUFF, DIRT_BY_SEASON, PETAL,
+  tileColor, stripe, bladeColor, clipColor, cellTint, grassFor, mix,
 } from '../core/palette.js';
 
 // GitHub-ish geometry: square day cells with a small gap.
@@ -9,14 +10,17 @@ const CELL = 16;
 const GAP = 3;
 const PITCH = CELL + GAP;      // 19
 const R = 3;                   // corner radius
-const OX = 48;                 // grid origin: room for Mon/Wed/Fri on the left
-const OY = 58;                 //              room for month labels on top
+const OX = 58;                 // grid origin: room for Mon/Wed/Fri on the left
+const OY = 60;                 //              room for month labels and glyphs
 const PAD_R = 22;
-const PAD_B = 66;              // legend strip
+const PAD_B = 70;              // legend strip
 const FONT = "'Patrick Hand', cursive";
 
-const BLADES = [0, 3, 5, 7, 10];
-const HEIGHT = [0, 6, 10, 13, 17];
+/** Stable per-column noise, so a patch of grass leans as one. */
+function hash(n) {
+  const x = Math.sin(n * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
 
 export class Renderer2D {
   constructor(canvas, lawn) {
@@ -120,7 +124,7 @@ export class Renderer2D {
   drawTile(x, y, cell, season) {
     if (cell.void) return;
     const { ctx } = this;
-    const under = tileColor(cell.level, season, false);
+    const under = tileColor(cell.level, season, false, cell.vigor || 0);
     const over = tileColor(cell.level, season, true);
     const t = cell.mowed ? Math.min(1, cell.mowT * 1.4) : 0;
     let fill = cell.level === 0 ? under : mix(under, over, t);
@@ -134,12 +138,19 @@ export class Renderer2D {
     ctx.stroke();
 
     if (cell.level === 0) {
-      // bare dirt: a couple of pebbles. This is what gives the graph its shape.
+      // bare dirt: a couple of pebbles and, here and there, a dry crack.
+      // This is what gives the graph its shape where nothing was committed.
       ctx.fillStyle = 'rgba(44,44,42,0.28)';
       for (let p = 0; p < 2; p++) {
         ctx.beginPath();
         ctx.arc(x + 4 + this.rnd() * 8, y + 5 + this.rnd() * 7, 0.9, 0, 7);
         ctx.fill();
+      }
+      if ((cell.col + cell.row) % 3 === 0) {
+        ctx.strokeStyle = 'rgba(44,44,42,0.18)'; ctx.lineWidth = 1;
+        const cx = x + 3 + this.rnd() * 6;
+        const cy = y + 4 + this.rnd() * 6;
+        this.line(cx, cy, cx + 5, cy + 3, 1.2);
       }
     } else if (cell.mowed && t >= 1) {
       // the cut: two faint passes across the tile
@@ -147,6 +158,14 @@ export class Renderer2D {
       ctx.lineWidth = 1;
       this.line(x + 2, y + 6, x + CELL - 2, y + 6, 0.5);
       this.line(x + 2, y + 11, x + CELL - 2, y + 11, 0.5);
+    }
+
+    // winter: snow settles along the top edge instead of washing the whole tile
+    if (season === 0 && !cell.mowed && cell.level > 0) {
+      ctx.globalAlpha = 0.45;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(x + 1.5, y + 1, CELL - 3, 3);
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -165,32 +184,58 @@ export class Renderer2D {
     return [bx + lean, by - h];
   }
 
-  /** Overgrown tuft standing on the tile, overflowing into the gaps. */
+  /**
+   * Overgrown tuft standing on the tile, overflowing into the gaps.
+   * Blade count, height and stroke all come from the day's own count via
+   * `vigor`, so a 40-contribution day is visibly rowdier than a 12.
+   */
   drawGrass(x, y, cell, season, scale = 1) {
     if (cell.void || cell.level === 0) return;
     const { ctx } = this;
     const shrink = cell.mowed ? Math.max(0.12, 1 - cell.mowT) : 1;
-    const n = Math.max(1, Math.round(BLADES[cell.level] * (cell.mowed ? 0.5 : 1)));
-    const h0 = HEIGHT[cell.level] * shrink * scale;
+    const g = grassFor(cell.level, cell.vigor || 0);
+    const n = Math.max(1, Math.round(g.blades * (cell.mowed ? 0.5 : 1)));
+    const h0 = g.height * shrink * scale;
     if (h0 < 1.2) return;
 
     const cx = x + CELL / 2;
     const base = y + CELL - 1;
-    const spread = (cell.level >= 3 ? CELL * 0.68 : CELL * 0.44) * scale;
-    const color = bladeColor(cell.level, season);
-    const w = 1.25 + cell.level * 0.22;
+    const spread = (cell.level >= 3 ? CELL * 0.7 : CELL * 0.44) * scale;
+    const color = cellTint(bladeColor(cell.level, season), cell.col, cell.row);
+    const dark = mix(color, INK, 0.25);
+    const bias = (hash(cell.col) - 0.5) * 4;    // the whole patch leans together
     ctx.lineCap = 'round';
 
+    // lay the blades out first, so the two tallest can get a darker tip
+    const blades = [];
     for (let i = 0; i < n; i++) {
       const f = n === 1 ? 0.5 : i / (n - 1);
-      const bx = cx - spread + f * spread * 2 + (this.rnd() - 0.5) * 2;
-      const h = h0 * (0.72 + this.rnd() * 0.5);
-      const lean = (this.rnd() - 0.5) * (5 + cell.level);
-      // a few autumn blades have turned
-      const turned = season === 3 && this.rnd() < 0.15;
-      const tip = this.blade(bx, base, h, lean, w, turned ? AUTUMN_BLADE : color);
+      blades.push({
+        bx: cx - spread + f * spread * 2 + (this.rnd() - 0.5) * 2,
+        h: h0 * (0.8 + this.rnd() * 0.4),
+        lean: bias + (this.rnd() - 0.5) * (5 + cell.level),
+        turned: season === 3 && this.rnd() < 0.15,
+        tall: false,
+      });
+    }
+    if (cell.level >= 3) {
+      [...blades].sort((a, b) => b.h - a.h).slice(0, 2).forEach((b) => { b.tall = true; });
+    }
+
+    for (let i = 0; i < blades.length; i++) {
+      const b = blades[i];
+      const c = b.turned ? AUTUMN_BLADE : color;
+      const tip = this.blade(b.bx, base, b.h, b.lean, g.width, c);
+      if (b.tall && !b.turned) {
+        // the top third of the tallest blades falls into shadow
+        ctx.strokeStyle = dark; ctx.lineWidth = g.width;
+        ctx.beginPath();
+        ctx.moveTo(tip[0] - b.lean * 0.22, tip[1] + b.h * 0.3);
+        ctx.lineTo(tip[0], tip[1]);
+        ctx.stroke();
+      }
       if (cell.level === 4 && !cell.mowed && i % 4 === 1) {
-        ctx.fillStyle = turned ? AUTUMN_BLADE : color;
+        ctx.fillStyle = b.turned ? AUTUMN_BLADE : color;
         ctx.beginPath();
         ctx.arc(tip[0], tip[1], 1.3, 0, 7);
         ctx.fill();
@@ -201,6 +246,33 @@ export class Renderer2D {
         ctx.beginPath();
         ctx.arc(tip[0], tip[1] - 0.4, 1.5, 0, 7);
         ctx.fill();
+      }
+    }
+
+    // the best days of the year put up a dandelion and a seed-head puff
+    if (cell.heroic && !cell.mowed && season !== 0) {
+      const st = h0 + 5;
+      for (let d = 0; d < 2; d++) {
+        const dx = cx + (d ? 4.5 : -4) + (this.rnd() - 0.5) * 2;
+        const top = base - st * (d ? 0.82 : 1);
+        ctx.strokeStyle = INK; ctx.lineWidth = 1;
+        this.line(dx, base, dx + bias * 0.4, top, 0.6);
+        if (d === 0) {
+          ctx.fillStyle = DANDELION;
+          ctx.beginPath(); ctx.arc(dx + bias * 0.4, top, 2.4, 0, 7); ctx.fill();
+          ctx.strokeStyle = INK; ctx.lineWidth = 0.8; ctx.stroke();
+        } else {
+          ctx.fillStyle = FLUFF;
+          ctx.beginPath(); ctx.arc(dx + bias * 0.4, top, 2.2, 0, 7); ctx.fill();
+          ctx.strokeStyle = INK; ctx.lineWidth = 0.6;
+          for (let k = 0; k < 4; k++) {
+            const a = k * 1.57 + 0.4;
+            ctx.beginPath();
+            ctx.moveTo(dx + bias * 0.4 + Math.cos(a) * 1.6, top + Math.sin(a) * 1.6);
+            ctx.lineTo(dx + bias * 0.4 + Math.cos(a) * 3.4, top + Math.sin(a) * 3.4);
+            ctx.stroke();
+          }
+        }
       }
     }
 
@@ -465,22 +537,91 @@ export class Renderer2D {
   /** The key doubles as a guide to how grass maps to contribution levels. */
   drawLegend() {
     const { ctx, lawn } = this;
-    const y = OY + lawn.rows * PITCH + 28;
+    const y = OY + lawn.rows * PITCH + 30;
     const right = OX + lawn.cols * PITCH - GAP;
-    ctx.font = `15px ${FONT}`;
+    ctx.font = `16px ${FONT}`;
     ctx.textBaseline = 'middle';
     const wMore = ctx.measureText('more').width;
     const wLess = ctx.measureText('less').width;
-    const x0 = right - wMore - 26 - (4 * PITCH - GAP);
+    const x0 = right - wMore - 26 - (5 * PITCH - GAP);
     ctx.fillStyle = PENCIL;
     ctx.fillText('less', x0 - wLess - 26, y + CELL / 2 + 1);
     ctx.fillText('more', right - wMore, y + CELL / 2 + 1);
-    for (let l = 1; l <= 4; l++) {
+    for (let l = 0; l <= 4; l++) {
       this.seed = l * 977 + this.boil * 17 + 3;
-      const x = x0 + (l - 1) * PITCH;
-      const fake = { col: l, row: 0, level: l, mowed: false, mowT: 0, count: 0, void: false };
+      const x = x0 + l * PITCH;
+      const fake = {
+        col: l, row: 0, level: l, mowed: l === 0, mowT: l === 0 ? 1 : 0,
+        count: 0, void: false, vigor: 0.5, heroic: false,
+      };
       this.drawTile(x, y, fake, 2);
       this.drawGrass(x, y, fake, 2, 1.3);
+    }
+  }
+
+  /**
+   * The bed the tiles sit in, coloured by climate: cold grey soil under the
+   * winter columns, warm brown under summer, blending one column either side
+   * of a season change so the year reads as a strip of ground.
+   */
+  drawBed(gw, gh) {
+    const { ctx, lawn } = this;
+    const x0 = OX - 5, y0 = OY - 5, w = gw + 10, h = gh + 10;
+    const soil = (s) => mix(DIRT_BY_SEASON[s], PAPER, 0.58);
+
+    ctx.save();
+    this.roundedPath(x0, y0, w, h, 8, 1.1);
+    ctx.clip();
+    for (let c = 0; c < lawn.cols; c++) {
+      const s = seasonIndexOfCol(lawn, c);
+      const prev = seasonIndexOfCol(lawn, Math.max(0, c - 1));
+      ctx.fillStyle = prev === s ? soil(s) : mix(soil(prev), soil(s), 0.5);
+      const bx = c === 0 ? x0 : this.tileX(c) - GAP / 2;
+      const bw = (c === lawn.cols - 1 ? x0 + w : this.tileX(c + 1) - GAP / 2) - bx;
+      ctx.fillRect(bx, y0, bw, h);
+    }
+    // the tiles are set into the bed, so the top edge catches a shadow
+    ctx.fillStyle = 'rgba(44,44,42,0.08)';
+    ctx.fillRect(x0, y0, w, 2);
+    ctx.restore();
+
+    this.roundedPath(x0, y0, w, h, 8, 1.1);
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.8; ctx.stroke();
+  }
+
+  /** A 10px doodle for the season a month belongs to. */
+  seasonGlyph(x, y, season) {
+    const { ctx } = this;
+    const kind = SEASON_GLYPH[season];
+    if (kind === 'snow') {
+      ctx.strokeStyle = '#85B7EB'; ctx.lineWidth = 1.1;
+      for (let k = 0; k < 3; k++) {
+        const a = k * 1.047 + 0.3;
+        this.line(x - Math.cos(a) * 4, y - Math.sin(a) * 4,
+          x + Math.cos(a) * 4, y + Math.sin(a) * 4, 0.5);
+      }
+    } else if (kind === 'flower') {
+      for (let k = 0; k < 5; k++) {
+        const a = k * 1.257;
+        ctx.fillStyle = PETAL[k % 2];
+        ctx.beginPath(); ctx.arc(x + Math.cos(a) * 2.8, y + Math.sin(a) * 2.8, 1.6, 0, 7); ctx.fill();
+      }
+      ctx.fillStyle = DANDELION;
+      ctx.beginPath(); ctx.arc(x, y, 1.5, 0, 7); ctx.fill();
+    } else if (kind === 'sun') {
+      ctx.fillStyle = SUN;
+      ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill();
+      ctx.strokeStyle = INK; ctx.lineWidth = 0.9;
+      for (let k = 0; k < 8; k++) {
+        const a = k * 0.785;
+        this.line(x + Math.cos(a) * 5, y + Math.sin(a) * 5,
+          x + Math.cos(a) * 7, y + Math.sin(a) * 7, 0.4);
+      }
+    } else {
+      ctx.fillStyle = ORANGE;
+      ctx.beginPath(); ctx.ellipse(x, y, 6, 3.5, -0.4, 0, 7); ctx.fill();
+      ctx.strokeStyle = INK; ctx.lineWidth = 1;
+      this.line(x - 5, y + 2, x + 5, y - 2, 0.4);
     }
   }
 
@@ -503,10 +644,21 @@ export class Renderer2D {
     ctx.font = `16px ${FONT}`;
     ctx.fillStyle = PENCIL;
     ctx.textBaseline = 'alphabetic';
+    let lastSeason = -1;
     for (const ms of lawn.monthStarts) {
       // GitHub skips a month that only owns a column or two at either end
       if (ms.span < 3) continue;
-      ctx.fillText(MONTH_NAMES[ms.month].slice(0, 3), this.tileX(ms.col), OY - 22);
+      const name = MONTH_NAMES[ms.month].slice(0, 3);
+      const lx = this.tileX(ms.col);
+      ctx.fillStyle = PENCIL;
+      ctx.fillText(name, lx, OY - 22);
+      // the first month of a season carries its little weather doodle
+      const s = SEASON_OF_MONTH[ms.month];
+      if (s !== lastSeason) {
+        this.seasonGlyph(lx + ctx.measureText(name).width + 10, OY - 27, s);
+        ctx.fillStyle = PENCIL;
+        lastSeason = s;
+      }
     }
 
     // fence ticks + rule above the grid
@@ -515,11 +667,8 @@ export class Renderer2D {
     for (let f = 0; f <= gw / 14; f++) this.line(OX + f * 14, OY - 16, OX + f * 14, OY - 9, 0.7);
     this.line(OX, OY - 12, OX + gw, OY - 12, 0.8);
 
-    // dirt bed under the tiles
-    ctx.fillStyle = mix(DIRT, PAPER, 0.62);
-    this.roundedPath(OX - 5, OY - 5, gw + 10, lawn.rows * PITCH - GAP + 10, 8, 1.1);
-    ctx.fill();
-    ctx.strokeStyle = INK; ctx.lineWidth = 1.6; ctx.stroke();
+    // dirt bed under the tiles, coloured by the climate of each column
+    this.drawBed(gw, lawn.rows * PITCH - GAP);
 
     // tiles first, then grass, so tufts spill over their neighbours
     for (const c of lawn.cells) {
@@ -574,9 +723,9 @@ export class Renderer2D {
     ctx.strokeStyle = PAPER;
     ['Mon', 'Wed', 'Fri'].forEach((d, i) => {
       const y = this.tileY(1 + i * 2) + CELL / 2 + 1;
-      ctx.strokeText(d, 4, y);
+      ctx.strokeText(d, 8, y);
       ctx.fillStyle = PENCIL;
-      ctx.fillText(d, 4, y);
+      ctx.fillText(d, 8, y);
     });
     ctx.textBaseline = 'alphabetic';
 
