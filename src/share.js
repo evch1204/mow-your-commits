@@ -3,6 +3,8 @@
 // clipboard helper. Small and dependency-free; the only DOM it touches is the
 // clipboard and the button it flashes "copied!" on.
 
+import { formatTime } from './core/lawn.js';
+
 export const SITE = 'https://evch1204.github.io/mow-your-commits/';
 export const REPO = 'https://github.com/evch1204/mow-your-commits';
 
@@ -80,4 +82,28 @@ export function copy(text, btn, label) {
   } else {
     window.prompt('copy this', text);
   }
+}
+
+/** "1,234" without leaning on Intl, so the string is the same everywhere. */
+function commas(n) {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/**
+ * The line the end card copies. It always ends in a link, so whoever reads it
+ * can go and mow their own graph - that is the whole point of the button.
+ */
+export function bragText(lawn, user, when, whose = 'my') {
+  return 'I mowed ' + whose + ' GitHub lawn: ' + commas(lawn.totalContributions)
+    + ' contributions ' + when + ', cut in ' + formatTime(lawn.time)
+    + ' 🌱🚜 mow yours: ' + shareUrl(user);
+}
+
+export function xUrl(text) {
+  return 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text);
+}
+
+export function redditUrl(url, title) {
+  return 'https://www.reddit.com/submit?url=' + encodeURIComponent(url)
+    + '&title=' + encodeURIComponent(title);
 }

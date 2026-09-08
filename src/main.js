@@ -9,7 +9,9 @@ import { Renderer2D } from './render2d/index.js';
 import { Renderer3D } from './render3d/index.js';
 import { lawnToSvg } from './export/svg.js';
 import { svgToPngBlob, download, downloadSvg } from './export/png.js';
-import { currentUser, markdownSnippet, workflowYaml, copy } from './share.js';
+import {
+  currentUser, markdownSnippet, workflowYaml, copy, bragText, xUrl,
+} from './share.js';
 
 const params = new URLSearchParams(location.search);
 const seed = Number(params.get('seed')) || DEFAULT_SEED;
@@ -236,19 +238,14 @@ function regrow() {
   stage.focus();
 }
 
+/** "my" for the demo, "torvalds'" for a loaded account. */
+function whoseLawn() {
+  if (!source) return 'my';
+  return /s$/i.test(source.login) ? source.login + "'" : source.login + "'s";
+}
+
 function copyBrag() {
-  const whose = source
-    ? (/s$/i.test(source.login) ? source.login + "'" : source.login + "'s")
-    : 'my';
-  const text = `I mowed ${whose} GitHub lawn: ${nf.format(lawn.totalContributions)} contributions `
-    + `${periodLabel(lawn)}, cut in ${formatTime(lawn.time)} · mow-your-commits`;
-  const btn = $('brag');
-  const done = () => { btn.textContent = 'copied!'; setTimeout(() => { btn.textContent = 'copy brag'; }, 1600); };
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(done, () => window.prompt('copy this', text));
-  } else {
-    window.prompt('copy this', text);
-  }
+  copy(bragText(lawn, currentUser(), periodLabel(lawn), whoseLawn()), $('brag'));
 }
 
 // --- share / export ------------------------------------------------------
@@ -298,6 +295,25 @@ on('dlpng', 'click', async (e) => {
 on('cpmd', 'click', (e) => copy(markdownSnippet(currentUser()), e.currentTarget));
 on('cpyml', 'click', (e) => copy(workflowYaml(), e.currentTarget));
 
+
+on('sharex', 'click', (e) => {
+  const text = bragText(lawn, currentUser(), periodLabel(lawn), whoseLawn());
+  if (navigator.share) { navigator.share({ text }).catch(() => {}); return; }
+  window.open(xUrl(text), '_blank', 'noopener');
+});
+if (navigator.share && $('sharex')) $('sharex').textContent = 'share';
+
+on('dlcard', 'click', async (e) => {
+  const btn = e.currentTarget;
+  const was = btn.textContent;
+  btn.textContent = 'rendering...';
+  try {
+    download(await svgToPngBlob(exportSvg('as-is'), 2), exportName() + '.png');
+  } catch (err) {
+    window.alert('could not make a png here. the svg download works everywhere.');
+  }
+  btn.textContent = was;
+});
 
 on('tryme', 'click', () => {
   // plan B owns the loader form; without it, ask and reload on ?user=
