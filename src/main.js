@@ -269,12 +269,25 @@ function exportName() {
   return 'lawn-' + (currentUser() || 'demo') + '-' + (year === null ? 'last' : year);
 }
 
-/** The README section's <img>. One object URL at a time, never per frame. */
+/**
+ * The README section's <img>. One object URL at a time, never per frame.
+ * refreshTotals() runs this at boot, so a throw here would take the whole page
+ * down with it (no render loop, no controls): the preview is the one thing on
+ * the page allowed to be missing.
+ */
 function refreshPreview() {
   const img = $('preview');
   if (!img) return;
+  let svg;
+  try {
+    svg = exportSvg(0.5);
+  } catch (err) {
+    console.error('could not draw the readme preview', err);
+    img.removeAttribute('src');
+    return;
+  }
   if (previewUrl) URL.revokeObjectURL(previewUrl);
-  previewUrl = URL.createObjectURL(new Blob([exportSvg(0.5)], { type: 'image/svg+xml' }));
+  previewUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
   img.src = previewUrl;
 }
 
