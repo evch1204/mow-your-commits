@@ -303,6 +303,17 @@ ok('daysForRolling has no voids', roll.every((d) => !d.void && d.date));
 ok('daysForRolling picks up the days it knows',
   roll.some((d) => d.count > 0));
 
+// a login that never contributed publicly: the rolling lawn is bare, not broken,
+// and the page keeps its "no public contributions yet" line instead of sending
+// the visitor to a year picker that holds nothing else.
+const bare = createLawn(daysForRolling(ghost.days), { year: null });
+ok('an account with no contributions still builds a rolling lawn',
+  bare.cols === COLS && bare.cells.length === COLS * ROWS, String(bare.cols));
+ok('a bare rolling lawn has nothing to mow',
+  bare.mowable === 0 && bare.totalContributions === 0 && bare.finished === true);
+ok('a bare rolling lawn has no voids to hide behind',
+  bare.cells.every((c) => !c.void && c.level === 0));
+
 // --- github.js: fetching, with a fake fetch --------------------------------
 
 async function kindOf(fn) {
