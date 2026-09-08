@@ -1,0 +1,31 @@
+# Mows the repository owner's graph every night and pushes the pictures to the
+# `output` branch, where a README can point an <img> at them.
+#
+# Copy this into your own profile repo as .github/workflows/lawn.yml and change
+# the first `uses:` to:   uses: evch1204/mow-your-commits@v1
+# (then you do not need the checkout step either).
+name: mow the lawn
+
+on:
+  schedule: [{ cron: '0 3 * * *' }]
+  workflow_dispatch:
+  push: { branches: [main] }
+
+permissions: { contents: write }
+
+jobs:
+  mow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./
+        with:
+          github_user_name: ${{ github.repository_owner }}
+          outputs: |
+            dist/lawn.svg
+            dist/lawn-dark.svg?theme=dark
+
+      - uses: crazy-max/ghaction-github-pages@v4
+        with: { target_branch: output, build_dir: dist }
+        env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} }

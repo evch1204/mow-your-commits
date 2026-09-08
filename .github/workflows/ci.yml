@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/smoke.mjs
+
+      # The action installs nothing, so the renderer must run with no
+      # node_modules at all. If this step fails, something in src/core or
+      # src/export grew a dependency.
+      - run: rm -rf node_modules
+      - run: node scripts/render-svg.mjs --demo --outputs "out/a.svg\nout/b.svg?theme=dark&animate=1"
+      - run: test -s out/a.svg && test -s out/b.svg

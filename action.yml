@@ -1,0 +1,40 @@
+name: mow your commits
+description: renders your GitHub contribution graph as a half-mowed doodle lawn (SVG), ready for a README
+author: evch1204
+branding:
+  icon: scissors
+  color: green
+
+inputs:
+  github_user_name:
+    description: github login to render
+    required: true
+  github_token:
+    description: token for the GraphQL calendar (the default action token is enough)
+    required: false
+    default: ${{ github.token }}
+  outputs:
+    description: >-
+      one per line, path relative to the workspace plus options as a query
+      string: theme=dark, animate=1, year=2025, mowed=0..1 or as-is, mower=0
+    required: false
+    default: |
+      dist/lawn.svg
+      dist/lawn-dark.svg?theme=dark
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    # No npm install: scripts/render-svg.mjs only imports src/core and
+    # src/export, which have zero dependencies. ci.yml asserts that by running
+    # the script with node_modules deleted.
+    - shell: bash
+      env:
+        USER_NAME: ${{ inputs.github_user_name }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        OUTPUTS: ${{ inputs.outputs }}
+      run: node "$GITHUB_ACTION_PATH/scripts/render-svg.mjs" --user "$USER_NAME" --outputs "$OUTPUTS" --cwd "$GITHUB_WORKSPACE"
