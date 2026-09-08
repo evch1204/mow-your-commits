@@ -178,7 +178,10 @@ function swapLawn(next, { first = false } = {}) {
 /** A real account can have years with nothing in them. Say so, or stop saying so. */
 function announceYear() {
   if (!source) return;
-  if (lawn.mowable > 0) { restoreStatus(); return; }
+  // An account with no years at all (never contributed, or all private) has
+  // nothing else to offer, so keep its own line instead of sending the visitor
+  // to a picker that holds one entry.
+  if (lawn.mowable > 0 || years.length <= 1) { restoreStatus(); return; }
   const when = year === null ? 'the last year' : String(year);
   setStatus('ok', 'nothing grew in ' + when + ' - pick another year');
 }
