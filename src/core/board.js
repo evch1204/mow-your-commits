@@ -12,7 +12,10 @@ export const GEOM = {
   PITCH: 19,           // CELL + GAP
   R: 3,                // tile corner radius
   OX: 58,              // grid origin: room for Mon/Wed/Fri on the left
-  OY: 60,              //              room for month labels and glyphs
+  // A hedge is 24px tall on a 16px tile, so a level-4 Sunday reaches 9px above
+  // the grid. The header keeps its absolute positions (the DYs below all grew
+  // by the same 4) and the grid drops instead, leaving the fence clear.
+  OY: 64,
   PAD_R: 22,
   PAD_B: 70,           // legend strip
   // header. The caption is the exporter's own line; the canvas puts the same
@@ -21,13 +24,13 @@ export const GEOM = {
   CAPTION_Y: 22,
   CAPTION_SIZE: 16,
   MONTH_SIZE: 16,
-  MONTH_DY: -22,
-  GLYPH_DY: -27,
+  MONTH_DY: -26,
+  GLYPH_DY: -31,
   // fence above the grid
   FENCE_STEP: 14,
-  FENCE_TOP: -16,
-  FENCE_BOT: -9,
-  FENCE_RULE: -12,
+  FENCE_TOP: -20,
+  FENCE_BOT: -13,
+  FENCE_RULE: -16,
   FENCE_W: 1.1,
   // dirt bed
   BED_INSET: 5,
@@ -43,14 +46,8 @@ export const GEOM = {
   // Patrick Hand 16px, measured once: the canvas measures "more" for itself,
   // so only the exporter needs the number.
   LEGEND_MORE_W: 35,
-  LEGEND_SCALE: 1.3,
+  // the key is the grammar, so its five shapes are drawn at their real size
+  LEGEND_SCALE: 1,
   // mower
   MOWER_SCALE: 1.25,
 };
-
-/**
- * How wide a tuft spreads across its tile. The rest of the grass grammar
- * (blade count, height, stroke width) is `GRASS` / `grassFor` in palette.js;
- * only the horizontal spread is a board coordinate.
- */
-export const SPREAD = (level) => (level >= 3 ? GEOM.CELL * 0.7 : GEOM.CELL * 0.44);

@@ -10,7 +10,7 @@
 import {
   MONTH_NAMES, SEASON_GLYPH, SEASON_OF_MONTH, seasonIndexOfCol, periodLabel, rng, hash,
 } from '../core/lawn.js';
-import { GEOM, SPREAD } from '../core/board.js';
+import { GEOM } from '../core/board.js';
 import { planRoute } from '../core/route.js';
 import {
   AUTUMN_BLADE, FLOWERS, ORANGE, CREAM, SUN, PETAL, DANDELION, FLUFF, NO_SEASON,
@@ -125,7 +125,7 @@ function tuft(bag, dots, over, x, y, cell, mowed, season, theme, o, scale) {
 
   const cx = x + CELL / 2;
   const base = y + CELL - 1;
-  const spread = SPREAD(level) * scale;
+  const spread = g.spread * scale;
   const color = cellTint(bladeColor(level, season, theme), cell.col, cell.row);
   const dark = mix(color, theme.ink, 0.25);
   const bias = (hash(cell.col) - 0.5) * 4;            // the patch leans as one

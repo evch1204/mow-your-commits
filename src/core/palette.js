@@ -63,15 +63,32 @@ export const SUN_LIGHT = ['#DCE8F5', '#FFF6E6', '#FFE9B8', '#FFD9A8'];
 export const DIRT_BY_SEASON = ['#BFC7CA', '#B08A5C', '#A9855B', '#B7925E'];
 
 /**
- * The grass grammar, shared by both renderers (and by the SVG exporter).
- * Index is the GitHub level; every span is [at vigor 0, at vigor 1], so a
- * 40-contribution level-4 day is visibly taller and denser than a 12.
+ * The grass grammar v2, shared by the canvas, the SVG exporter and the 3D
+ * cards. The index is the GitHub level, and a day grows the *shape* its `kind`
+ * names: a level 3 day is not a taller level 2, it is a bush where the other
+ * was a tuft. Silhouettes, not stroke counts, are what make a year readable
+ * from across the room.
+ *
+ * Every span is [at vigor 0, at vigor 1]: a base size scaled 0.85..1.15, so a
+ * 40-contribution level-4 day is visibly bigger than a 12 in the same green.
  */
 export const GRASS = {
-  blades: [[0, 0], [2, 3], [4, 6], [7, 9], [10, 13]],
-  height: [[0, 0], [4, 6], [7, 10], [10, 14], [14, 19]],   // 2D px on a 16px tile
-  width: [0, 1.2, 1.4, 1.6, 1.85],                         // 2D stroke px
-  tuftY: [[0, 0], [0.8, 1.05], [0.8, 1.1], [0.85, 1.15], [0.9, 1.3]],  // 3D y-scale
+  /** What grows on a day of this level, and so which silhouette is drawn. */
+  kind: ['bare', 'sprouts', 'tuft', 'bush', 'hedge'],
+  /**
+   * Blades for `sprouts` and `tuft`; darker inner strokes on the filled
+   * silhouette for `bush` and `hedge`. Deliberately not a ramp: a bush is not
+   * a tuft with more blades, it is a different drawing with its own detail.
+   */
+  blades: [[0, 0], [3, 3], [5, 6], [4, 5], [6, 8]],
+  /** 2D px on a 16px tile. 17..24 is taller than a tile, so a hedge overlaps. */
+  height: [[0, 0], [5, 7], [8, 11], [12, 16], [17, 24]],
+  /** 2D ink width: none on sprouts, 1 around a clump, 1.4 bush, 1.6 hedge. */
+  width: [0, 1.1, 1, 1.4, 1.6],
+  /** 3D card height, in tiles (one tile = one unit). The 3D renderer reads this. */
+  tuftY: [[0, 0], [0.26, 0.35], [0.51, 0.69], [0.85, 1.15], [1.28, 1.73]],
+  /** Half-width in 2D px: a bush and a hedge spill ~3px past a 16px tile. */
+  spread: [[0, 0], [3, 4], [4.7, 6.3], [9.4, 12.6], [10.2, 13.8]],
 };
 
 const span = (s, v) => s[0] + (s[1] - s[0]) * v;
@@ -81,10 +98,12 @@ export function grassFor(level, vigor = 0.5) {
   const l = Math.max(0, Math.min(4, level | 0));
   const v = Math.max(0, Math.min(1, vigor));
   return {
+    kind: GRASS.kind[l],
     blades: Math.round(span(GRASS.blades[l], v)),
     height: span(GRASS.height[l], v),
     width: GRASS.width[l],
     tuftY: span(GRASS.tuftY[l], v),
+    spread: span(GRASS.spread[l], v),
   };
 }
 
@@ -119,7 +138,9 @@ export function mix(a, b, t) {
  * SVG exporter passes GitHub's dark-mode ramp instead, so the exported picture
  * follows every formula here in both themes without copying any of them.
  */
-export const LIGHT_RAMP = { greens: GITHUB, bare: BARE, frost: FROST, ink: INK };
+export const LIGHT_RAMP = {
+  greens: GITHUB, bare: BARE, frost: FROST, ink: INK, inkRgb: '44,44,42',
+};
 
 /** Season-tinted GitHub green for a level. Always recognisably GitHub. */
 export function levelGreen(level, season = 2, ramp = LIGHT_RAMP) {
@@ -158,11 +179,22 @@ export function shade(hex, k) {
 /** Every other column gets a slightly lighter fill: mower stripes. */
 export function stripe(hex) { return mix(hex, '#FFFFFF', 0.17); }
 
-/** Grass blade colour: level 1 needs a push toward ink to show on its tile. */
+/**
+ * The colour a day's grass is drawn in: the blades of the two thin kinds, the
+ * filled body of a bush or a hedge. The levels pull apart on purpose. A sprout
+ * goes 35% toward ink so three hairs still read against their own tile, and a
+ * hedge is GitHub's `#216E39` at full strength, dark enough that the ink
+ * outline is all that separates it from the tile it stands on.
+ */
 export function bladeColor(level, season = 2, ramp = LIGHT_RAMP) {
   if (season === 0) return WINTER_BLADE[level] || WINTER_BLADE[4];
   const g = levelGreen(level, season, ramp);
-  return mix(g, ramp.ink, [0, 0.3, 0.15, 0.08, 0.06][level] || 0);
+  return mix(g, ramp.ink, [0, 0.35, 0.18, 0.08, 0][level] || 0);
+}
+
+/** The darker strokes drawn inside a filled bush or hedge. */
+export function innerColor(fill, ramp = LIGHT_RAMP) {
+  return mix(fill, ramp.ink, 0.3);
 }
 
 /** Clipping / particle colour for a level. */

@@ -2,7 +2,7 @@ import {
   MONTH_NAMES, SEASON_GLYPH, SEASON_OF_MONTH, seasonIndexOfCol, describeCell,
   hash, lcgStep, lcgFloat,
 } from '../core/lawn.js';
-import { GEOM, SPREAD } from '../core/board.js';
+import { GEOM } from '../core/board.js';
 import { CLIP_MAX, FONT, POPUP_MERGE, clippingCount } from '../core/effects.js';
 import {
   INK, PAPER, CREAM, ORANGE, PENCIL, SUN, AUTUMN_BLADE, FLOWERS,
@@ -204,7 +204,7 @@ export class Renderer2D {
 
     const cx = x + CELL / 2;
     const base = y + CELL - 1;
-    const spread = SPREAD(cell.level) * scale;
+    const spread = g.spread * scale;
     const color = cellTint(bladeColor(cell.level, season), cell.col, cell.row);
     const dark = mix(color, INK, 0.25);
     const bias = (hash(cell.col) - 0.5) * 4;    // the whole patch leans together

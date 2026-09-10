@@ -638,19 +638,43 @@ ok('regrow leaves vigor and heroic alone',
 
 // --- the shared grass grammar ---------------------------------------------
 
-ok('blade spans never step backwards', (() => {
+// Every level is its own silhouette, so the levels are named, not just sized.
+ok('the five kinds are the five levels',
+  GRASS.kind.join(',') === 'bare,sprouts,tuft,bush,hedge'
+    && [0, 1, 2, 3, 4].every((l) => grassFor(l, 0.5).kind === GRASS.kind[l]));
+// Heights and widths never overlap between levels: a busy level-2 day must
+// still be smaller than a quiet level-3 one, or the shapes stop being a ramp.
+ok('height spans never step backwards', (() => {
   for (let l = 1; l <= 4; l++) {
-    if (GRASS.blades[l][0] < GRASS.blades[l - 1][1]) return false;
-    if (GRASS.height[l][0] < GRASS.height[l - 1][1]) return false;
-    if (GRASS.blades[l][1] < GRASS.blades[l][0]) return false;
+    for (const row of [GRASS.height, GRASS.tuftY]) {
+      if (row[l][0] < row[l - 1][1]) return false;
+      if (row[l][1] < row[l][0]) return false;
+    }
   }
   return true;
 })());
-ok('the biggest day is the tallest', grassFor(4, 1).height === 19, String(grassFor(4, 1).height));
+// The table in docs/plans/v05-doodle.md, asserted: a hedge is taller than the
+// 16px tile it stands on, so it overlaps the row above; a bush spills ~3px
+// past the tile's sides; sprouts stay well inside theirs.
+ok('a hedge is taller than a tile and a sprout is not',
+  grassFor(4, 0).height > GEOM.CELL && grassFor(1, 1).height < GEOM.CELL / 2,
+  `${grassFor(4, 0).height} / ${grassFor(1, 1).height}`);
+ok('a bush and a hedge spill past their tile, a tuft does not',
+  grassFor(3, 0.5).spread > GEOM.CELL / 2 && grassFor(4, 0.5).spread > GEOM.CELL / 2
+    && grassFor(2, 1).spread < GEOM.CELL / 2,
+  [1, 2, 3, 4].map((l) => grassFor(l, 0.5).spread.toFixed(1)).join(' '));
+ok('the biggest day is the tallest', grassFor(4, 1).height === 24, String(grassFor(4, 1).height));
 ok('vigor 0 is the bottom of the span',
   [0, 1, 2, 3, 4].every((l) => grassFor(l, 0).blades === GRASS.blades[l][0]));
 ok('grassFor clamps out-of-range vigor',
-  grassFor(4, 9).height === 19 && grassFor(4, -3).height === 14);
+  grassFor(4, 9).height === 24 && grassFor(4, -3).height === 17);
+// The 3D renderer scales its cards by this and nothing else, so it has to keep
+// meaning "tiles high" and keep stepping level by level.
+ok('tuftY still ramps for the 3D cards',
+  grassFor(1, 0.5).tuftY < grassFor(2, 0.5).tuftY
+    && grassFor(2, 0.5).tuftY < grassFor(3, 0.5).tuftY
+    && grassFor(3, 0.5).tuftY < grassFor(4, 0.5).tuftY,
+  [1, 2, 3, 4].map((l) => grassFor(l, 0.5).tuftY.toFixed(2)).join(' '));
 
 // --- winter still reads as a graph ---------------------------------------
 
@@ -692,10 +716,11 @@ ok('svg starts with an svg root', svg.startsWith('<svg xmlns="http://www.w3.org/
 const boxFor = (cols) => `viewBox="0 0 ${GEOM.OX + cols * GEOM.PITCH + GEOM.PAD_R}`
   + ` ${GEOM.OY + ROWS * GEOM.PITCH + GEOM.PAD_B}"`;
 ok('the exporter uses the 2D board geometry',
-  GEOM.OX === 58 && GEOM.OY === 60 && GEOM.PAD_B === 70 && GEOM.PITCH === 19,
+  GEOM.OX === 58 && GEOM.OY === 64 && GEOM.PAD_B === 70 && GEOM.PITCH === 19,
   `${GEOM.OX}/${GEOM.OY}/${GEOM.PAD_B}`);
-ok('rolling lawn is 1068x263',
-  svg.includes(boxFor(COLS)) && svg.includes('viewBox="0 0 1068 263"'));
+// OY carries the four extra pixels a level-4 Sunday's hedge grows above the grid
+ok('rolling lawn is 1068x267',
+  svg.includes(boxFor(COLS)) && svg.includes('viewBox="0 0 1068 267"'));
 ok('a 53-column year is 1087 wide',
   lawnToSvg(createLawn(null, { seed: 1, year: 2025 })).includes(boxFor(53)));
 ok('the legend opens on the bare level-0 swatch',
