@@ -3,8 +3,9 @@
 import {
   createLawn, resetLawn, tick, progress, COLS, ROWS, MAX_COLS,
   describeCell, formatTime, formatDay, periodLabel, tempAt,
-  gridForYear, gridForRolling, layoutYear, placeMower, isoDay,
+  gridForYear, gridForRolling, layoutYear, placeMower, isoDay, rng, seasonIndexOfCol,
 } from '../src/core/lawn.js';
+import { Z, grassOps } from '../src/core/grass.js';
 import {
   GRASS, grassFor, tileColor, bladeColor, cellTint, hexToRgb, mix, SEASON_TINT,
   DANDELION, GITHUB, BARE, NO_SEASON,
@@ -676,6 +677,79 @@ ok('tuftY still ramps for the 3D cards',
     && grassFor(3, 0.5).tuftY < grassFor(4, 0.5).tuftY,
   [1, 2, 3, 4].map((l) => grassFor(l, 0.5).tuftY.toFixed(2)).join(' '));
 
+// --- the five silhouettes -------------------------------------------------
+// src/core/grass.js is the one drawing, replayed on the canvas and serialised
+// into the README's SVG, so what it emits is worth pinning down here.
+
+const shapeFor = (level, over = {}) => grassOps(
+  { col: 3, row: 2, level, vigor: 0.5, heroic: false, void: false, ...over },
+  100, 100, 2, { rnd: rng(9), ...over },
+);
+/** The ink box a day's drawing occupies, in board pixels. */
+function bounds(ops) {
+  let top = Infinity, bot = -Infinity, left = Infinity, right = -Infinity;
+  const see = (x, y) => {
+    top = Math.min(top, y); bot = Math.max(bot, y);
+    left = Math.min(left, x); right = Math.max(right, x);
+  };
+  for (const op of ops) {
+    if (op.t === 'oval') { see(op.x - op.rx, op.y - op.ry); see(op.x + op.rx, op.y + op.ry); }
+    else for (const seg of op.d) for (let i = 1; i < seg.length; i += 2) see(seg[i], seg[i + 1]);
+  }
+  return { top, bot, left, right, h: bot - top, w: right - left };
+}
+const shapes = [0, 1, 2, 3, 4].map((l) => shapeFor(l));
+const bodyOf = (ops) => ops.filter((op) => op.z === Z.BODY);
+
+ok('a bare day and a cut day draw nothing',
+  shapes[0].length === 0 && shapeFor(4, { mowT: 1 }).length === 0
+    && shapeFor(4, { void: true }).length === 0);
+ok('sprouts are loose blades with no body',
+  bodyOf(shapes[1]).length === 0 && shapes[1].length === grassFor(1, 0.5).blades);
+ok('a tuft is blades on one filled clump',
+  bodyOf(shapes[2]).length === 1 && shapes[2].length === grassFor(2, 0.5).blades + 1);
+ok('a bush and a hedge are a filled body with an ink outline',
+  [3, 4].every((l) => {
+    const body = bodyOf(shapes[l])[0];
+    return body && body.fill && body.stroke && body.w >= 1.4;
+  }));
+ok('only a bush and a hedge cast a hatched shadow',
+  [1, 2].every((l) => !shapes[l].some((op) => op.z === Z.SHADOW))
+    && [3, 4].every((l) => shapes[l].some((op) => op.z === Z.SHADOW)));
+ok('a hedge puts up seed heads and a bush does not',
+  shapes[4].filter((op) => op.t === 'oval' && op.z === Z.ACCENT).length >= 2
+    && shapes[3].filter((op) => op.t === 'oval').length === 0);
+// the whole point of the grammar: each level is bigger than the last, and a
+// hedge is taller than the 16px tile it stands on
+const box = shapes.slice(1).map(bounds);
+ok('every level draws taller and wider than the one below',
+  [1, 2, 3].every((i) => box[i].h > box[i - 1].h && box[i].w > box[i - 1].w),
+  box.map((b) => `${b.h.toFixed(0)}x${b.w.toFixed(0)}`).join(' '));
+ok('a hedge overlaps the row above it', box[3].h > GEOM.CELL, box[3].h.toFixed(1));
+ok('a bush spills past its own tile', box[2].w > GEOM.CELL + 2, box[2].w.toFixed(1));
+ok('vigor grows the same shape', (() => {
+  const lo = bounds(shapeFor(4, { vigor: 0 }));
+  const hi = bounds(shapeFor(4, { vigor: 1 }));
+  return hi.h > lo.h * 1.2 && hi.w > lo.w;
+})());
+ok('the best days add a dandelion',
+  shapeFor(4, { heroic: true }).length > shapes[4].length
+    && shapeFor(4, { heroic: true }).some((op) => op.fill === DANDELION));
+ok('winter frosts the blades and drops the dandelion',
+  grassOps({ col: 3, row: 2, level: 4, vigor: 0.5, heroic: true, void: false },
+    100, 100, 0, { rnd: rng(9) }).every((op) => op.fill !== DANDELION));
+ok('spring puts blossom in the grass',
+  [1, 2, 3, 4].every((l) => grassOps(
+    { col: 3, row: 2, level: l, vigor: 0.5, heroic: false, void: false },
+    100, 100, 1, { rnd: rng(9) },
+  ).length > shapes[l].length));
+// a cut squashes what is standing, so the reveal has something to reveal
+const cut = bounds(shapeFor(4, { mowT: 0.9 }));
+ok('a cut squashes the silhouette flat', cut.h < box[3].h * 0.4 && cut.w > box[3].w,
+  `${cut.h.toFixed(1)} vs ${box[3].h.toFixed(1)}`);
+ok('the same seed draws the same day',
+  JSON.stringify(shapeFor(4)) === JSON.stringify(shapeFor(4)));
+
 // --- winter still reads as a graph ---------------------------------------
 
 const lum = (hex) => {
@@ -745,6 +819,31 @@ const noNs = svg.replace(/xmlns="[^"]*"/, '');
 ok('svg loads nothing external', !/https?:\/\//.test(noNs));
 ok('svg has no script or foreignObject',
   !svg.includes('<script') && !svg.includes('<foreignObject'));
+
+// The exporter serialises the ops src/core/grass.js hands back, one subpath
+// per "M", so the picture in a README can be counted against the grammar
+// rather than eyeballed: if a silhouette stops reaching the file, this trips.
+const grassOf = (doc) => /<g id="grass"[^>]*>([\s\S]*?)<\/g>/.exec(doc)[1];
+const subpaths = (frag) => (frag.match(/M/g) || []).length;
+ok('the grass is one group of batched paths', grassOf(svg).startsWith('<path '));
+ok('the exporter draws every op the grammar emits', (() => {
+  let want = 0;
+  for (const c of svgLawn.cells) {
+    if (c.void || !c.level || (c.row * COLS + c.col) < Math.round(0.5 * COLS * ROWS)) continue;
+    const rnd = rng((c.col * 31 + c.row * 7) * 131 + 7 * 131 + 1);
+    rnd(); rnd();
+    for (const op of grassOps(c, 0, 0, seasonIndexOfCol(svgLawn, c.col), { rnd, ramp: THEMES.light })) {
+      want += op.t === 'oval' ? 1 : op.d.filter((s) => s[0] === 'M').length;
+    }
+  }
+  return subpaths(grassOf(svg)) === want;
+})());
+ok('a mown day grows nothing at all: the tile is the reveal',
+  grassOf(lawnToSvg(svgLawn, { mowed: 1 })) === '',
+  grassOf(lawnToSvg(svgLawn, { mowed: 1 })).slice(0, 60));
+ok('an unmown year grows the most', subpaths(grassOf(lawnToSvg(svgLawn, { mowed: 0 })))
+  > subpaths(grassOf(svg)));
+ok('the tall grass casts its hatched shadow', svg.includes('rgba(44,44,42,0.16)'));
 
 ok('mowed 0 parks no mower', !lawnToSvg(svgLawn, { mowed: 0 }).includes('id="mower"'));
 ok('mowed 0 mows nothing', !lawnToSvg(svgLawn, { mowed: 0 }).includes('id="cuts"'));
@@ -937,13 +1036,15 @@ ok('animate still loads nothing external',
 ok('animate ignores mowed: the loop always starts fully grown',
   lawnToSvg(svgLawn, { animate: true, mowed: 1 }) === animSvg);
 ok('the animated svg is well-formed', malformed(animSvg) === '', malformed(animSvg));
-// the covers cannot batch by colour, so the animated file is much bigger
-ok('the animated demo svg stays under 450 kB', animSvg.length < 450000, `${animSvg.length}`);
+// the covers cannot batch across cells, so the animated file is much bigger;
+// a README embed has to stay comfortable, so hold it under the plan's 600 kB
+ok('the animated demo svg stays under 600 kB', animSvg.length < 600000,
+  `${(animSvg.length / 1024).toFixed(0)} kB`);
 
 // The demo year is a normal one. The worst case a real account can hand the
-// Action is every day at level 4, which is one cover per cell with the most
-// blades any level draws: ~780 kB today. Cap it where a README embed is still
-// reasonable, and where a change that doubles the per-cell cost would trip.
+// Action is every day at level 4, which is one cover per cell carrying the
+// biggest silhouette in the grammar: ~825 kB today. Cap it where a README
+// embed is still reasonable, and where a costlier hedge would trip.
 const denseDays = gridForRolling().dates.map((d) => ({ date: isoDay(d), count: 40, level: 4 }));
 const denseLawn = createLawn(denseDays, { year: null });
 ok('the dense lawn really is dense',
