@@ -288,6 +288,54 @@ button[aria-pressed="true"] { background: var(--grass); }
   font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   overflow-x: auto; white-space: pre;
 }
+
+/* --- the three-step install ------------------------------------------ */
+/* Numbered cards rather than a plain <ol>: each step is one sentence, one
+   button and one line of small print, and the number has to be findable
+   from across the page. */
+.steps {
+  list-style: none; margin: 18px 0 0; padding: 0;
+  display: grid; gap: 14px;
+  counter-reset: step;
+}
+.steps > li {
+  counter-increment: step;
+  position: relative; margin: 0; padding: 12px 16px 14px 58px;
+  background: var(--paper); border: 2px solid var(--ink); border-radius: 12px;
+  box-shadow: 3px 4px 0 rgba(var(--ink-rgb), .1);
+}
+.steps > li:nth-child(odd) { transform: rotate(-.25deg); }
+.steps > li:nth-child(even) { transform: rotate(.2deg); }
+.steps > li::before {
+  content: counter(step);
+  position: absolute; left: 14px; top: 12px;
+  width: 30px; height: 30px; border: 2px solid var(--ink); border-radius: 50%;
+  background: var(--grass); color: var(--ink);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px; line-height: 1;
+}
+.steps h3 { margin: 0 0 2px; font-size: 21px; font-weight: 400; color: var(--ink); }
+.steps .what { margin: 0 0 8px; font-size: 16px; max-width: 68ch; }
+.steps .btns { margin-top: 0; }
+/* the primary button of each step, in the highlighter green */
+.steps button.go { background: var(--grass); }
+.steps .note { margin: 6px 0 0; font-size: 15px; }
+.steps .note[hidden] { display: none; }
+/* with no account loaded the buttons still work - they send you to the box */
+body[data-install="off"] .steps button.go,
+body[data-install="off"] #openreadme { opacity: .6; }
+body[data-install="off"] #installnote { color: var(--error); }
+#installnote.flash { animation: nudge .5s ease-out 2; }
+@keyframes nudge {
+  0%, 100% { transform: translateX(0); }
+  30% { transform: translateX(-4px); }
+  65% { transform: translateX(4px); }
+}
+#byhand { margin-top: 10px; font-size: 16px; }
+#byhand summary { cursor: pointer; width: fit-content; color: var(--pencil); }
+#byhand p { margin: 8px 0 0; font-size: 16px; }
+.also { margin-top: 14px; font-size: 16px; }
+.also button { font-size: 16px; margin-left: 4px; }
 .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 /* an account is loaded: there is nothing left to talk you into */
 body[data-source="user"] #try { display: none; }

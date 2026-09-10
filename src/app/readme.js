@@ -113,7 +113,12 @@ function arm(btn, url) {
   if (!btn) return;
   if (url) {
     btn.dataset.url = url;
-    btn.title = url;
+    // the pre-filled workflow URL carries a whole yaml file, which is not a
+    // tooltip anybody wants: show where it goes, not what it carries
+    try {
+      const u = new URL(url);
+      btn.title = u.host + u.pathname;
+    } catch { btn.title = url; }
     btn.removeAttribute('aria-disabled');
   } else {
     delete btn.dataset.url;

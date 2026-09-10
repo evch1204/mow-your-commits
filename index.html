@@ -118,24 +118,53 @@
       brag about.</p>
   </section>
 
+  <!-- Three steps, one button each. The buttons are armed by app/readme.js
+       from whoever is loaded; with the demo lawn up they nudge you at the
+       username box instead of opening a tab on somebody else's repo. -->
   <section id="readme" class="strip">
     <h2>put your lawn in your README</h2>
     <p>a GitHub Action mows your graph every night and commits the picture to your profile
-      repo. no tokens, no servers, nothing to host.</p>
+      repo. no tokens, no servers, nothing to host &mdash; three clicks and it is yours.</p>
     <img id="preview" alt="your lawn as it will look in a README" />
-    <div class="btns">
-      <button id="dlsvg">download svg</button>
-      <button id="dlpng">download png</button>
-      <button id="cpmd">copy markdown</button>
-    </div>
-    <ol>
-      <li>make a repo named after you (<code>you/you</code>) if you don't have one</li>
-      <li>add <code>.github/workflows/lawn.yml</code> with this:
-        <button id="cpyml">copy workflow</button>
-        <pre id="yaml"></pre>
+
+    <ol class="steps">
+      <li>
+        <h3>add the workflow to GitHub</h3>
+        <p class="what">opens GitHub's own new-file editor with the workflow already typed
+          into it. nothing is saved until you press GitHub's green button.</p>
+        <div class="btns"><button id="install" class="go">add the workflow to GitHub</button></div>
+        <p class="note" id="installnote"></p>
+        <details id="byhand">
+          <summary>or copy it yourself</summary>
+          <p>put this in <code>.github/workflows/lawn.yml</code> on the default branch of your
+            profile repo. <button id="cpyml">copy workflow</button></p>
+          <pre id="yaml"></pre>
+        </details>
       </li>
-      <li>run it once from the actions tab, then paste the markdown above into your README</li>
+      <li>
+        <h3>run it once</h3>
+        <p class="what">the first run draws the picture and pushes it to an
+          <code>output</code> branch. after that it mows itself every night.</p>
+        <div class="btns"><button id="runit" class="go">open the actions tab</button></div>
+        <p class="note" id="runnote"></p>
+      </li>
+      <li>
+        <h3>paste it into your README</h3>
+        <p class="what">a <code>&lt;picture&gt;</code> block, so your lawn follows GitHub's
+          light and dark themes the way the real graph does.</p>
+        <div class="btns">
+          <button id="cpmd" class="go">copy markdown</button>
+          <button id="openreadme">open your README</button>
+        </div>
+        <p class="note" id="mdnote"></p>
+        <p class="note">no <code id="reponame">you/you</code> repo yet?
+          <a id="newrepo" href="https://github.com/new" target="_blank" rel="noopener">create it</a>
+          &mdash; a repo named exactly like your login is what GitHub shows on your profile.</p>
+      </li>
     </ol>
+
+    <p class="also">prefer a file? <button id="dlsvg">download svg</button>
+      <button id="dlpng">download png</button></p>
   </section>
 
   <footer class="strip">
