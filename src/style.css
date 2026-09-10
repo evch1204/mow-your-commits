@@ -349,7 +349,13 @@ body[data-install="off"] #installnote { color: var(--error); }
 #byhand { margin-top: 10px; font-size: 16px; }
 #byhand summary { cursor: pointer; width: fit-content; color: var(--pencil); }
 #byhand p { margin: 8px 0 0; font-size: 16px; }
-.also { margin-top: 14px; font-size: 16px; }
+/* A footnote to the whole section, not a fourth line of step 3: it needs air
+   under the last card, and its left edge lines up with the card *text* rather
+   than with the card border - the list's own 22px indent, plus the card's 2px
+   border and 58px of padding. Written as `.strip p.also` because `.strip p`
+   above is more specific than a bare `.also` and was quietly winning, which is
+   why the row used to sit hard against the last card. */
+.strip p.also { margin: 28px 0 0 82px; font-size: 16px; }
 .also button { font-size: 16px; margin-left: 4px; }
 .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 /* an account is loaded: there is nothing left to talk you into */
