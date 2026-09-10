@@ -6,9 +6,13 @@
 // low-frequency noise re-seeded with `uSeed`, so the ink boils like the rest
 // of the drawing.
 //
-// The mower keeps its inverted-hull outlines: those draw the panel lines the
-// depth buffer cannot see. The pass is skipped entirely without WebGL2, and
-// `?sketch=0` turns it off for comparison shots.
+// Depth only, and deliberately: a second pass with a MeshNormalMaterial
+// override would find the creases the depth buffer misses, but an override
+// material drops every map and alphaTest with it, so the grass cards would
+// come back as solid rectangles and the normal edges would ink a field of
+// boxes. The mower keeps its inverted-hull outlines instead: those draw the
+// panel lines depth cannot see. The pass is skipped entirely without WebGL2,
+// and `?sketch=0` turns it off for comparison shots.
 
 import * as THREE from 'three';
 import { INK } from '../core/palette.js';

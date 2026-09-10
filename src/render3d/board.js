@@ -111,13 +111,19 @@ function buildMeadow(r, g, cols) {
   r.meadowMat = r.mats.card(meadowCard());
   const rnd = rng(70207);
   const half = cols / 2 + 3;
-  const cards = deck(r.meadowMat, MEADOW_CARDS, () => {
-    // a ring around the board: never on it, denser near the fence
-    let x = (rnd() * 2 - 1) * (half + 26);
-    let z = r.fenceZ - rnd() * 34;
-    if (rnd() < 0.4) {
-      z = (rnd() * 2 - 1) * (ROWS / 2 + 16);
-      x = (rnd() < 0.5 ? -1 : 1) * (half + 1.5 + rnd() * 22);
+  const cards = deck(r.meadowMat, MEADOW_CARDS, (i) => {
+    // A ring around the board, never on it. Two cards in five are dealt to
+    // the long sides rather than left to chance, because driving the year
+    // means looking down it: the ground beside the slab is what is in frame
+    // for most of a lap, and a random ring left it bare.
+    let x;
+    let z;
+    if (i % 5 < 2) {
+      z = (rnd() * 2 - 1) * (ROWS / 2 + 13);
+      x = (i % 2 ? -1 : 1) * (half + 1.2 + rnd() * rnd() * 24);
+    } else {
+      x = (rnd() * 2 - 1) * (half + 26);
+      z = r.fenceZ - rnd() * rnd() * 34;
     }
     const s = 0.7 + rnd() * 0.9;
     return { x, y: -0.95, z, w: 1.5 * s, h: 1.0 * s, phase: rnd() };

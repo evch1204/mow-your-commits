@@ -214,7 +214,7 @@ export function meadowCard() {
   return cached('meadowCard', () => canvasTexture(128, 96, (c) => {
     const rnd = rng(31337);
     c.lineCap = 'round';
-    for (const [style, w, n] of [['#FFFFFF', 10, 11], ['rgba(44,44,42,0.42)', 2.6, 11]]) {
+    for (const [style, w, n] of [['#FFFFFF', 11, 13], ['rgba(44,44,42,0.6)', 3.4, 13]]) {
       c.strokeStyle = style;
       const r2 = rng(31337);
       for (let i = 0; i < n; i++) {
