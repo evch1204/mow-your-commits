@@ -94,7 +94,9 @@ export function updateHud(lawn, dt) {
   els.temp.textContent = degrees(tempAt(lawn, lawn.mower.x));
   els.mowed.textContent = nf.format(lawn.mowedContributions);
   els.timer.textContent = formatTime(lawn.time);
-  paintCombo(lawn);
+  // once the card is up the run is over: the field would otherwise sit there
+  // showing whatever the last chain reached, next to a card saying the best
+  if (endShown) { els.comboField.hidden = true; shownCombo = 0; } else paintCombo(lawn);
 
   if (tagUntil > 0) {
     tagUntil -= dt;
