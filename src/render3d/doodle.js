@@ -730,12 +730,26 @@ export function sunTexture() {
   }));
 }
 
+/**
+ * One closed outline - three bumps standing on a flat bottom edge - filled
+ * once and inked once, so the fill and the line share a silhouette. It used to
+ * be three whole circles plus a white rectangle laid over their bottoms, and
+ * the rectangle hung out below and between the arcs with no ink around it: a
+ * white block under every cloud. The sweeps below start and end on the
+ * baseline, and hand over to each other where the circles cross.
+ */
 export function cloudTexture() {
   return cached('cloud', () => canvasTexture(128, 128, (c) => {
-    c.lineWidth = 6; c.strokeStyle = INK; c.fillStyle = '#ffffff';
-    c.beginPath(); c.arc(40, 74, 22, 0, 7); c.arc(66, 58, 28, 0, 7); c.arc(92, 76, 22, 0, 7);
-    c.fill(); c.stroke();
-    c.fillStyle = '#fff'; c.fillRect(30, 72, 70, 22);
+    c.fillStyle = '#ffffff'; c.strokeStyle = INK;
+    c.lineWidth = 6; c.lineJoin = 'round'; c.lineCap = 'round';
+    c.beginPath();
+    c.moveTo(27.4, 92);
+    c.arc(40, 74, 22, 2.184, 4.650);
+    c.arc(66, 58, 28, 3.356, 6.142);
+    c.arc(92, 76, 22, 4.791, 7.097);
+    c.closePath();
+    c.fill();
+    c.stroke();
   }));
 }
 

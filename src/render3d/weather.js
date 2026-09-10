@@ -106,8 +106,13 @@ export function buildWeather(r) {
 
   // autumn leaves, which double as spring blossom. One instanced quad: as 44
   // separate meshes they were a third of the frame's draw calls on their own.
+  // depthWrite off: the quad is mostly transparent, and a quad that writes
+  // depth for its transparent corners gets an ink square drawn round it by the
+  // sketch pass. alphaTest cannot do the job here - the whole material fades
+  // in and out on `opacity`, and a cut would make the drift pop instead.
   r.leafMat = new THREE.MeshBasicMaterial({
     map: leafTexture(), side: THREE.DoubleSide, transparent: true, opacity: 0,
+    depthWrite: false,
   });
   r.leaves = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.34, 0.21), r.leafMat, LEAF_N);
   r.leaves.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

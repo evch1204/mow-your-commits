@@ -319,7 +319,12 @@ export function buildSigns(r) {
     const top = n++ % 2 ? 2.3 : 1.95;   // alternate so a run does not read as a rail
     const pl = new THREE.Mesh(
       new THREE.PlaneGeometry(2.4, 2.4),
-      new THREE.MeshBasicMaterial({ map: signTexture(ms.month, FONT), transparent: true }),
+      // alphaTest, or the whole 2.4x2.4 quad writes depth - transparent
+      // margins included - and the sketch pass inks a square around the sign
+      // instead of following the cream board in the middle of the texture.
+      new THREE.MeshBasicMaterial({
+        map: signTexture(ms.month, FONT), transparent: true, alphaTest: 0.5,
+      }),
     );
     pl.position.set(x, top, r.fenceZ - 0.06);
     pl.scale.setScalar(r.signScale || 1);
