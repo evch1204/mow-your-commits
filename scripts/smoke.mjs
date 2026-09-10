@@ -1010,19 +1010,22 @@ ok('the plain site is the fallback', shareUrl('', '') === SITE);
 // far right, so the card has to be able to scroll itself back into view and
 // to scroll internally on a board barely 170px tall.
 
-const indexHtml = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-const mainJs = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+const src = (path) => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
+const indexHtml = src('index.html');
+const styleCss = src('src/style.css');
+const mainJs = src('src/main.js');
+const hudJs = src('src/app/hud.js');
 const rule = (sel) => (new RegExp(sel.replace(/[.#]/g, '\\$&') + '\\s*\\{([^}]*)\\}')
-  .exec(indexHtml) || ['', ''])[1];
+  .exec(styleCss) || ['', ''])[1];
 
 ok('the end card overlay scrolls rather than clipping its buttons',
   /overflow:\s*auto/.test(rule('#endcard')), rule('#endcard').trim().slice(0, 80));
 ok('the end card is centred by auto margins, not by align-items',
   /margin:\s*auto/.test(rule('.card')) && !/align-items/.test(rule('#endcard')));
 ok('finishing parks the scrolling board back at the card',
-  /stage\.scrollLeft = 0;/.test(mainJs));
+  /stage\.scrollLeft = 0;/.test(hudJs));
 ok('the mower stops dragging the board while the card is up',
-  /active !== 'flat' \|\| !endcard\.hidden/.test(mainJs));
+  /active !== 'flat' \|\| endCardUp\(\)/.test(mainJs));
 
 // --- the view toggle ------------------------------------------------------
 // <body data-view> is how the CSS knows which renderer is showing, so it

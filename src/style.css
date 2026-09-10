@@ -65,17 +65,28 @@ h1 svg { display: block; }
 .stats {
   background: var(--cream); border: 2px solid var(--ink); border-radius: 10px;
   padding: 5px 14px 6px;
-  display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.4fr) auto auto;
-  gap: 4px 18px; align-items: center;
+  display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.4fr) auto auto auto;
+  gap: 4px 14px; align-items: center;
   font-size: 17px; color: var(--pencil);
   transform: rotate(-.25deg);
   box-shadow: 3px 4px 0 rgba(var(--ink-rgb), .12);
 }
 .stats span { white-space: nowrap; }
-.stats span + span { border-left: 1.5px solid rgba(var(--ink-rgb), .16); padding-left: 18px; }
+.stats span + span { border-left: 1.5px solid rgba(var(--ink-rgb), .16); padding-left: 14px; }
 .stats b { font-weight: 400; color: var(--green); white-space: nowrap; }
+/* the combo: the one field that is not always there, so it gets the loud
+   colour (--error is the only red dark enough to read on the cream) and a
+   jump every time it climbs */
+#combofield b { color: var(--error); display: inline-block; }
+#combo.pulse { animation: combopop .34s ease-out; }
+@keyframes combopop {
+  0% { transform: scale(1) rotate(0deg); }
+  35% { transform: scale(1.5) rotate(-6deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
 .bar {
-  display: inline-block; width: clamp(80px, 12vw, 160px); height: 10px;
+  display: inline-block; width: clamp(70px, 10vw, 150px); height: 10px;
   border: 1.5px solid var(--ink); border-radius: 6px; background: #FFFDF6;
   vertical-align: -1px; overflow: hidden;
 }
