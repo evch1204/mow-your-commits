@@ -724,7 +724,7 @@ ok('rolling lawn is 1068x267',
 ok('a 53-column year is 1087 wide',
   lawnToSvg(createLawn(null, { seed: 1, year: 2025 })).includes(boxFor(53)));
 ok('the legend opens on the bare level-0 swatch',
-  (svg.slice(svg.indexOf('<g id="legend">')).match(/<rect/g) || []).length === 5);
+  (svg.slice(svg.indexOf('<g id="legend"')).match(/<rect/g) || []).length === 5);
 ok('winter caps the unmowed tiles with frost', svg.includes('<g id="frost">'));
 ok('the best days put up a dandelion', svg.includes(DANDELION.toLowerCase())
   || svg.includes(DANDELION));
