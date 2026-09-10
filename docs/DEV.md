@@ -7,19 +7,43 @@ Everything that is not needed to play or to put the lawn in a README.
 Two renderers share one model:
 
 - `src/core/` — the lawn itself. Cells, mower physics, mowing detection, seasons,
-  temperature by month, the shared palette, the flat board's geometry (`board.js`) and the
-  `GRASS`/`grassFor` blade grammar. The 2D canvas and the SVG exporter draw the grammar
-  in full; the 3D renderer takes only `tuftY` from it and carries its own tuft builds.
-  No DOM, no rendering, no dependencies.
+  temperature by month, the shared palette, the flat board's geometry (`board.js`), the
+  `GRASS`/`grassFor` blade grammar and, in `grass.js`, the five silhouettes themselves —
+  written as *drawing ops* (filled paths, strokes, ovals, in board pixels) rather than as
+  drawing. The canvas replays them and the SVG exporter serialises them, from the same
+  list in the same order, so the picture in a README cannot drift from the board on the
+  page. The 3D renderer takes only `tuftY` and the level's `kind` and carries its own
+  cards. No DOM, no rendering, no dependencies.
 - `src/render2d/` — hand-drawn canvas at the proportions of the real graph: 52x7 rounded
   tiles on a dirt bed whose colour follows the climate of each column, month labels with a
   season doodle, Mon/Wed/Fri down the left, legend bottom right. The whole year's weather
   is on screen at once: snow over winter columns, blossom over spring, dandelion fluff over
-  summer, leaves over autumn.
+  summer, leaves over autumn. Six modules: `index.js` (the Renderer2D class — the frame,
+  the layers, `setLawn`), `pen.js` (the jitter stream, the four wobbly primitives everything
+  is built out of, and the replay of `core/grass.js`'s ops; Renderer2D extends it and the
+  other modules take the renderer as their pen), `grass.js` (the tile and the silhouette
+  standing on it), `mower.js` (the rig, its tracks, puffs and clippings), `weather.js`
+  (the year's climate and the bare-tile dressing) and `overlays.js` (+N popups, the day
+  tag, Mon/Wed/Fri, the key).
 - `src/render3d/` — Three.js with cel shading, ink outlines, a "boiling" wobble shader and
-  wind sway. Instanced tiles plus four tuft builds scaled by the day's count. Sky dome,
-  fog, hills, trees that change with the season, a sun that climbs in summer and sits low
-  in winter, and weather that follows the mower.
+  wind sway. Instanced tiles, doodle grass cards, a sky dome, fog, hills, trees that change
+  with the season, a sun that climbs in summer and sits low in winter, and weather that
+  follows the mower. `index.js` is the wiring — the frame, `setLawn`/`applyLawn`, the
+  public API — and the drawing lives next door: `theme.js` (3D-only colours and numbers),
+  `materials.js` (boil, sway, the cel gradient map, the inverted-hull ink), `doodle.js`
+  (every texture in the scene, drawn with a pen on a canvas — grass cards, trees, hills,
+  sky and farm props, month signs), `board.js` (slab, meadow, fence, signs, hill lines,
+  treeline, barn and windmill), `grass.js` (one instanced box per day and the crossed-quad
+  tuft card standing on it), `mower.js` (the rig and its pose), `weather.js` (the season
+  weights that drive sky, fog, lights, snow, blossom, leaves, fluff), `camera.js` (chase
+  ↔ overview, the orbit, and the fit that frames the whole year), `effects.js` (clippings,
+  puffs, dust, tyre ribbons, +N labels — one instanced pool each) and `post.js` (the
+  screen-space sketch pass: a depth-only Sobel that inks every edge, paper grain over the
+  top, a vignette, and the sample offset boiling on `uSeed`). The pass is depth-only on
+  purpose — the reason a normal pass is not used is written at the top of `post.js`: a
+  `MeshNormalMaterial` override drops every map and `alphaTest` with it, so the grass
+  cards would come back as solid rectangles and the ink would draw a field of boxes. The
+  mower keeps its inverted hulls for the panel lines depth cannot see.
 - `src/app/` — the page, split by job. `input.js` is the four booleans the mower steers
   by (the keys, the on-screen pad, the `C` and `R` shortcuts); `hud.js` owns the strip over
   the board, the last-mowed tag, the combo field and the end card; `readme.js` owns the
@@ -59,9 +83,14 @@ Two renderers share one model:
 - `scripts/render-svg.mjs` — what the Action runs. Imports only `src/core` and
   `src/export`, so it works with `node_modules` deleted (CI asserts this).
 
-Grass reads the *count*, not just the level: each cell carries a `vigor` (where its count
-sits inside its own level's range), so a 40-contribution day grows taller, denser and
-darker than a 12 in the same green. The top 3% of days are `heroic` and grow a dandelion.
+Grass reads the *count*, not just the level: the level picks the *shape* — `bare` (a dirt
+tile with two pebbles), `sprouts` (three thin blades), `tuft` (five or six blades on a
+small outlined clump), `bush` (a filled three-lobe silhouette that spills past the tile)
+and `hedge` (taller than a tile, so it overlaps the row above, with seed heads on top and
+a hatched shadow below) — and each cell then carries a `vigor` (where its count sits
+inside its own level's range) that scales it 0.85..1.15, so a 40-contribution day grows
+taller, denser and darker than a 12 in the same green. The top 3% of days are `heroic`:
+the hedge, plus a dandelion and its seed puff.
 
 **The combo.** `tick` keeps `lawn.combo`, `lawn.bestCombo` and `lawn.lastCutAt` (seconds
 of `lawn.time`). A cut inside `COMBO_WINDOW` (0.9 s) of the last one raises the run;
@@ -97,6 +126,8 @@ node scripts/render-svg.mjs --user torvalds --outputs "out/plain.svg?weather=0&b
 | `?yaw=45`, `?dist=6` | debug: preset look-around angle and camera distance |
 | `?finish=1` | debug: mow everything before the first paint (end card) |
 | `?og=1` | debug: hide controls, year list and landing strips, for social-card shots |
+| `?sketch=0` | debug: turn off the 3D sketch post pass, for comparison shots |
+| `?stats=1` | debug: log the 3D draw calls and triangles once, on the first frame |
 | `?sound=0` | do not restore a remembered "sound on", so a screenshot stays silent |
 
 Only `?user`, `?year` and `?seed` travel in a share link.
@@ -154,7 +185,7 @@ npx vite preview --port 4173 --strictPort
 chrome --headless=new --disable-gpu --use-gl=angle --use-angle=swiftshader \
   --enable-unsafe-swiftshader --hide-scrollbars --window-size=1000,900 \
   --virtual-time-budget=6000 --screenshot=out.png \
-  "http://localhost:4173/?view=flat&autodrive=1"
+  "http://localhost:4173/?view=flat&autodrive=1&sound=0"
 ```
 
 Headless Chrome clamps its window to 500px wide, so `--window-size=390,844` quietly lies

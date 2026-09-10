@@ -81,7 +81,8 @@ everywhere, (3) the README SVG is the board, (4) mowing feels physical.
 Concrete changes:
 
 - `palette.js`: the grammar above. Level colours pull further apart: `bladeColor` for
-  level 1 mixes 0.35 toward ink; level 4 fill is GitHub's `#216E39` at full strength with
+  level 1 mixes 0.65 toward ink — at 0.35 the blades came out *lighter* than the level-1
+  tile they stand on and vanished; level 4 fill is GitHub's `#216E39` at full strength with
   an ink outline; bush/hedge inner strokes are `mix(fill, INK, 0.3)`. Keep `WINTER_BLADE`,
   season tints and `NO_SEASON` behaviour.
 - `board.js`: unchanged geometry unless you need a taller top margin for the hedges
