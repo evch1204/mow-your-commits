@@ -149,10 +149,12 @@ canvas { display: block; width: 100%; }
 #deep { height: clamp(360px, 46vw, 560px); transition: height .3s ease; }
 body[data-view="flat"] #deep, body[data-view="deep"] #flat { display: none; }
 body[data-view="deep"] #stage { cursor: grab; }
-/* the overview is the poster of the year: a 53x7 lawn is a 7:1 strip, so in
-   a 2:1 frame most of the picture is empty meadow. Letterbox it instead. */
-body[data-view="deep"][data-cam="overview"] #deep { height: clamp(200px, 24vw, 310px); }
-body[data-view="deep"][data-cam="overview"] #years { max-height: clamp(200px, 24vw, 310px); }
+/* the overview is the poster of the year: a 53x7 lawn is a 7:1 strip, so its
+   frame is shorter than the chase cam's. Not much shorter, though — the sky,
+   the hills, the barn and the windmill all stand above the board, and they are
+   half of why the shot is worth taking. */
+body[data-view="deep"][data-cam="overview"] #deep { height: clamp(280px, 34vw, 420px); }
+body[data-view="deep"][data-cam="overview"] #years { max-height: clamp(280px, 34vw, 420px); }
 
 #years {
   flex: 0 0 auto; display: flex; flex-direction: column; gap: 5px;
@@ -258,7 +260,7 @@ button[aria-pressed="true"] { background: var(--grass); }
   #stage { width: 100%; overflow-x: auto; overflow-y: hidden; }
   #flat { min-width: 680px; }
   #deep { height: 360px; }
-  body[data-view="deep"][data-cam="overview"] #deep { height: 210px; }
+  body[data-view="deep"][data-cam="overview"] #deep { height: 280px; }
   #years {
     flex-direction: row; width: 100%; max-height: none;
     overflow-x: auto; overflow-y: hidden; padding-bottom: 2px;
@@ -355,5 +357,14 @@ body[data-source="user"] #try { display: none; }
 /* ?og=1 : the social card shot. board only, centred in the frame. */
 body[data-og="1"] { zoom: 1.3; padding: 30px 18px; gap: 14px; }
 body[data-og="1"] :is(.controls, #pad, .strip, #years, #tokenbox) { display: none; }
+/* the combo comes and goes mid-run, so it would move the strip about between
+   one card and the next. Drop it, and let the four fields that are always
+   there share the row at 1.3 zoom instead of running into each other. */
+body[data-og="1"] #combofield { display: none; }
+body[data-og="1"] .stats {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.25fr) auto auto;
+  font-size: 15px; gap: 4px 11px;
+}
+body[data-og="1"] .stats span + span { padding-left: 11px; }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
