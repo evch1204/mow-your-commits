@@ -11,7 +11,7 @@ import {
   GRASS, grassFor, tileColor, bladeColor, cellTint, hexToRgb, mix, SEASON_TINT,
   DANDELION, GITHUB, BARE, NO_SEASON,
 } from '../src/core/palette.js';
-import { planRoute } from '../src/core/route.js';
+import { planRoute, bezAt } from '../src/core/route.js';
 import { GEOM } from '../src/core/board.js';
 import { lawnToSvg } from '../src/export/svg.js';
 import { THEMES } from '../src/export/themes.js';
@@ -983,11 +983,11 @@ ok('the route is deterministic for a seed',
 ok('a different seed drives a different route',
   JSON.stringify(planRoute(svgLawn, 8).waypoints) !== JSON.stringify(route.waypoints));
 // long enough to cover a 7-row field with a 1.34-cell swath, short enough that
-// the frontier window is still holding: without it the greedy tour races to the
-// far end and doubles back, and the length runs away with it
-ok('the route is 1x to 2x the mowable count',
-  route.length > mowable.length && route.length < mowable.length * 2,
-  `${route.length.toFixed(1)} for ${mowable.length}`);
+// one pass per row plus the turns off each edge: the drive covers the board
+// once, however many days grew, and never doubles back for stragglers
+ok('the route is one pass per row plus turns',
+  route.length > ROWS * svgLawn.cols && route.length < ROWS * svgLawn.cols * 1.3,
+  `${route.length.toFixed(1)} for ${ROWS} x ${svgLawn.cols}`);
 // the frontier is the whole point: nothing may be left standing behind the
 // mower for long, so the drive cuts at a steady rate rather than in bursts
 let ragged = 0;
@@ -1000,24 +1000,52 @@ ok('the route drives off the right edge',
   route.waypoints[route.waypoints.length - 1].x > svgLawn.cols,
   String(route.waypoints[route.waypoints.length - 1].x));
 ok('the route starts off the left edge', route.waypoints[0].x < 0);
-// the whole point of the weave: a greedy tour on 7 rows otherwise settles into
-// one row after another, which is the row-by-row loop this replaced
-let sameRow = 0;
-for (let i = 1; i < route.waypoints.length; i++) {
-  if (Math.floor(route.waypoints[i].z) === Math.floor(route.waypoints[i - 1].z)) sameRow++;
+// no hairpins: rotate="auto" swings the drawn mower round every bend, so the
+// tightest bend anywhere on the drive has to be a real U-turn, a cell across
+let sharpest = 0;
+for (const sp of route.curve) {
+  let p = bezAt(sp, 0);
+  let h = null;
+  for (let i = 1; i <= 40; i++) {
+    const q = bezAt(sp, i / 40);
+    const ds = Math.hypot(q.x - p.x, q.z - p.z);
+    const a = Math.atan2(q.z - p.z, q.x - p.x);
+    if (h !== null && ds > 1e-6) {
+      let d = a - h;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      sharpest = Math.max(sharpest, Math.abs(d) / ds);
+    }
+    h = a;
+    p = q;
+  }
 }
-ok('the route weaves rather than sweeping rows',
-  sameRow * 2 < route.waypoints.length - 1,
-  `${sameRow} of ${route.waypoints.length - 1}`);
+ok('the route never turns tighter than a one-cell radius', sharpest < 1.05,
+  `min radius ${(1 / sharpest).toFixed(2)} cells`);
+ok('the route slows through more than one turn',
+  route.curve.filter((sp) => sp.kind === 'turn').length >= 2 * (ROWS - 1));
 ok('planning never touches the lawn', JSON.stringify(svgLawn) === before);
 
 const animSvg = lawnToSvg(svgLawn, { animate: true });
 ok('animate drives the mower along the route', animSvg.includes('<animateMotion'));
 ok('animate loops forever', animSvg.includes('repeatCount="indefinite"'));
 ok('the still animates nothing', !svg.includes('<animate'));
+// the covers sit between the tracks and the mower; the mower's own exhaust and
+// clippings fade too, so the count is taken inside the cover group alone
+const coverFades = (s) => {
+  const from = s.indexOf('<g id="cover"');
+  const to = s.indexOf('<g id="mower"');
+  return (s.slice(from, to).match(/<animate attributeName="opacity"/g) || []).length;
+};
 ok('one regrowing cover per grown cell of the whole year',
-  (animSvg.match(/<animate attributeName="opacity"/g) || []).length === mowable.length,
-  `${(animSvg.match(/<animate attributeName="opacity"/g) || []).length} vs ${mowable.length}`);
+  coverFades(animSvg) === mowable.length, `${coverFades(animSvg)} vs ${mowable.length}`);
+ok('the mower leaves tyre tracks on the loop',
+  animSvg.includes('<mask id="ruts"') && animSvg.includes('<rect id="tracks"')
+  && animSvg.indexOf('<rect id="tracks"') < animSvg.indexOf('<g id="cover"'));
+ok('the blade spins and the chute throws clippings on the loop',
+  (animSvg.match(/<animateTransform /g) || []).length === 1 + 2 * 5);
+ok('the still leaves no tracks and throws nothing', !svg.includes('id="ruts"')
+  && !svg.includes('<animateTransform'));
 // SMIL drops a whole <animate> whose keyTimes are not strictly increasing, and
 // the last cell is cut a hair before the drive ends, so this is easy to get wrong.
 let smilOk = true;
@@ -1077,8 +1105,8 @@ const denseSvg = lawnToSvg(denseLawn, { animate: true });
 ok('a fully dense year stays under 900 kB', denseSvg.length < 900000,
   `${(denseSvg.length / 1024).toFixed(0)} kB`);
 ok('a fully dense year is well-formed', malformed(denseSvg) === '', malformed(denseSvg));
-ok('a fully dense year still cuts every day',
-  (denseSvg.match(/<animate attributeName="opacity"/g) || []).length === COLS * ROWS);
+ok('a fully dense year still cuts every day', coverFades(denseSvg) === COLS * ROWS,
+  `${coverFades(denseSvg)} vs ${COLS * ROWS}`);
 
 // --- weather=0 and bg=0: the plain chart ----------------------------------
 

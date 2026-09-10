@@ -11,7 +11,7 @@ import {
   MONTH_NAMES, SEASON_GLYPH, SEASON_OF_MONTH, seasonIndexOfCol, periodLabel, rng, hash,
 } from '../core/lawn.js';
 import { GEOM } from '../core/board.js';
-import { planRoute } from '../core/route.js';
+import { planRoute, spanLength } from '../core/route.js';
 import { Z, grassOps } from '../core/grass.js';
 import {
   ORANGE, CREAM, SUN, PETAL, DANDELION, NO_SEASON, tileColor, mix, stripe,
@@ -176,8 +176,12 @@ function batched(map, attrsFor) {
   return out.join('');
 }
 
-/** The riding mower, in its own local space. Port of render2d's mower(). */
-function mowerGroup(theme) {
+/**
+ * The riding mower, in its own local space. Port of render2d's mower().
+ * With `fx` (the loop timing) the blade spins and the exhaust and clippings
+ * from mowerFx ride along; without it, the still.
+ */
+function mowerGroup(theme, fx = null) {
   const ink = theme.ink;
   const p = [];
   const el = (d, fill, sw) =>
@@ -189,13 +193,18 @@ function mowerGroup(theme) {
   // cutting deck, wider than the body, with the discharge chute on the right
   el(boxD(0, -9.5, 12, 19, 3), '#615F58', 1.4);
   el('M5 9L10 9L13 14.5L7 14.5Z', '#3A3A38', 1.4);
-  // blade inside the deck (frozen at spin 0)
+  // blade inside the deck: frozen at spin 0 in the still, spinning on the loop
   const blade = [];
   for (const o of [0, 1.57]) {
     blade.push(lineD(6 + Math.cos(o) * 6.5, Math.sin(o) * 6.5,
       6 - Math.cos(o) * 6.5, -Math.sin(o) * 6.5));
   }
-  p.push(`<path d="${blade.join('')}" fill="none" stroke="#B8B6AE" stroke-width="1.4"/>`);
+  const spin = fx
+    ? `<animateTransform attributeName="transform" type="rotate" values="0 6 0;360 6 0"`
+      + ` keyTimes="0;1" dur="0.3s" repeatCount="indefinite"/>`
+    : '';
+  p.push(`<path d="${blade.join('')}" fill="none" stroke="#B8B6AE" stroke-width="1.4">`
+    + `${spin}</path>`);
 
   // front wheels
   for (const s of [-1, 1]) ellipse(5.5, s * 8, 2.6, 1.7, '#33332F', 1);
@@ -241,7 +250,9 @@ function mowerGroup(theme) {
   el(cap, ORANGE, 1.1);
   p.push(`<path d="${circleD(-4.6, -1.1, 0.6)}${circleD(-4.6, 1.1, 0.6)}" fill="${ink}"/>`);
 
-  return `<g stroke-linejoin="round" stroke-linecap="round">${p.join('')}</g>`;
+  // the marks come first so the tractor is drawn over them
+  return `<g stroke-linejoin="round" stroke-linecap="round">`
+    + `${fx ? mowerFx(fx, theme) : ''}${p.join('')}</g>`;
 }
 
 // --- the whole picture ----------------------------------------------------
@@ -367,8 +378,11 @@ export function lawnToSvg(lawn, opts) {
   // 8. dressing: pebbles on bare dirt, snowflakes and fallen leaves
   parts.push(`<g id="dressing">${dressing(lawn, theme, o, seasonOf)}</g>`);
 
+  // 8a. the tyre tracks the animated mower leaves, under the grass it cuts
+  const timing = route ? loopTiming(route) : null;
+  if (route) parts.push(trackLayer(route, timing, theme, W, H));
+
   // 8b. the overgrown lawn the animated mower cuts away, cell by cell
-  const timing = route ? loopTiming(route.length) : null;
   if (route) parts.push(coverGroup(lawn, theme, o, route, timing, seasonOf));
 
   // 9. mower. The outer <g> parks it: the still position, or the start of the
@@ -378,7 +392,7 @@ export function lawnToSvg(lawn, opts) {
     // under animateMotion the heading comes from rotate="auto", so the art
     // group carries the scale and nothing else
     const art = `<g transform="${route ? '' : `rotate(${n2(m.deg)}) `}`
-      + `scale(${GEOM.MOWER_SCALE})">` + mowerGroup(theme) + `</g>`;
+      + `scale(${GEOM.MOWER_SCALE})">` + mowerGroup(theme, route ? timing : null) + `</g>`;
     if (!route) {
       parts.push(`<g id="mower" transform="translate(${n2(m.x)},${n2(m.y)})">${art}</g>`);
     } else {
@@ -386,11 +400,12 @@ export function lawnToSvg(lawn, opts) {
       // rotate="auto" would swing the parked translate about the page origin.
       // The driven <g> therefore owns no transform: its parent parks it, the
       // path is relative to that, and rotate="auto" turns it in place. Right,
-      // because the mower art faces +x. keyPoints holds it off the right edge
-      // for the last stretch of the loop: the pause before everything regrows.
+      // because the mower art faces +x. The keys are the loop's clock: slower
+      // through the U-turns, then held off the right edge for the last stretch
+      // of the loop, the pause before everything regrows.
       const drive = `<animateMotion dur="${n2(timing.dur)}s" repeatCount="indefinite"`
-        + ` rotate="auto" calcMode="linear" keyPoints="0;1;1"`
-        + ` keyTimes="0;${timing.drive};1" path="${motionPath(route, m)}"/>`;
+        + ` rotate="auto" calcMode="linear" keyPoints="${timing.keyPoints}"`
+        + ` keyTimes="${timing.keyTimes}" path="${motionPath(route, m)}"/>`;
       parts.push(`<g id="mower" transform="translate(${n2(m.x)},${n2(m.y)})">`
         + `<g>${drive}${art}</g></g>`);
     }
@@ -577,20 +592,147 @@ function dressing(lawn, theme, o, seasonOf) {
   return out.join('');
 }
 
-/** The drive, in cells per second, and the pause parked off the right edge. */
-const SPEED = 8;
+/** The drive, in cells per second: down a pass, and round a U-turn. */
+const SPEED = 9;
+const TURN_SPEED = 5.5;
+/** The pause parked off the right edge, in seconds. */
 const HOLD = 1.6;
 /** How long a tuft takes to vanish once the blade reaches it, as a fraction. */
 const SNAP = 0.004;
+/** Four decimals: what every keyTimes/keyPoints in the picture is written to. */
+const f4 = (v) => v.toFixed(4);
 
 /**
  * One loop: drive the whole route, then hold off the edge while the year
- * regrows. `drive` is where the driving ends, as a fraction of the loop, and
- * is the last key of every animation in the picture.
+ * regrows. The drive is a chain of legs (a pass, a U-turn, a pass...) that
+ * the mower takes at two speeds, so the loop's clock is piecewise linear in
+ * arc length. `keyPoints`/`keyTimes` spell that clock out for animateMotion;
+ * `at()` runs a cut's arc length through the same clock, so a tuft vanishes
+ * on the frame the drawn mower reaches it and the tracks reveal in step.
+ * `drive` is where the driving ends, as a fraction of the loop.
  */
-function loopTiming(length) {
-  const dur = length / SPEED + HOLD;
-  return { dur, drive: Number(((length / SPEED) / dur).toFixed(4)) };
+function loopTiming(route) {
+  const legs = [];
+  for (const sp of route.curve) {
+    const len = spanLength(sp);
+    const last = legs[legs.length - 1];
+    if (last && last.kind === sp.kind) last.len += len;
+    else legs.push({ kind: sp.kind, len });
+  }
+  const total = legs.reduce((s, l) => s + l.len, 0);
+  const secs = (l) => l.len / (l.kind === 'turn' ? TURN_SPEED : SPEED);
+  const dur = legs.reduce((s, l) => s + secs(l), 0) + HOLD;
+  const arcs = [0];
+  const times = [0];
+  let s = 0;
+  let t = 0;
+  for (const l of legs) {
+    s += l.len;
+    t += secs(l);
+    arcs.push(s / total);
+    times.push(t / dur);
+  }
+  // the keys are what the SVG carries, so the clock is read back off the
+  // rounded values: a cut must not land a hair past the key it belongs to
+  const kp = arcs.map((v) => Number(f4(v)));
+  const kt = times.map((v) => Number(f4(v)));
+  kp[kp.length - 1] = 1;
+  const drive = kt[kt.length - 1];
+  const at = (arc) => {
+    const f = Math.min(1, Math.max(0, arc / route.length));
+    let i = 1;
+    while (i < kp.length - 1 && kp[i] < f) i++;
+    const u = (f - kp[i - 1]) / ((kp[i] - kp[i - 1]) || 1);
+    return kt[i - 1] + u * (kt[i] - kt[i - 1]);
+  };
+  return {
+    dur, drive, at,
+    // arc length in cells at every key, for anything measured along the path
+    cells: kp.map((f) => f * route.length),
+    keyPoints: [...kp.map(f4), '1'].join(';'),
+    keyTimes: [...kt.map(f4), '1'].join(';'),
+  };
+}
+
+/**
+ * Twin tyre tracks, the way render2d draws them: under the grass, so they
+ * only show where the lawn has been cut, and fading out behind the mower.
+ * One centreline path does both tyres: through a luminance mask, a wide white
+ * stroke minus a narrower black one leaves the two edges, which stay in step
+ * through every turn (offset polylines would not: the inner tyre's path is
+ * shorter). The reveal is a dash window sliding along that path on the loop's
+ * clock; three nested windows step the tail down like the game's fade.
+ */
+// Half the track and the tyre width, in page px. Narrower than the drawn rear
+// wheels on purpose, as in the game: the real wheel track is wider than a tile
+// row, and a tyre mark under the next row's uncut grass is a tyre mark nobody
+// sees. This pair stays on the tile through the weave.
+const TYRE_X = 6;
+const TYRE_W = 2.4;
+const TRACK_WINDOWS = [16, 10, 5];   // cells behind the mower, longest first
+function trackLayer(route, timing, theme, W, H) {
+  const wide = n2(TYRE_X * 2 + TYRE_W);
+  const gap = n2(TYRE_X * 2 - TYRE_W);
+  const L = route.length;
+  // longest window first and darkest, each shorter one painted over it
+  // brighter: the luminance steps up toward the mower. Solid greys rather
+  // than translucent white, and sRGB rather than the linearRGB default, or a
+  // mid grey reads as a tenth of itself and the tracks vanish.
+  const greys = ['#555', '#AAA', '#FFF'];
+  const windows = TRACK_WINDOWS.map((w, i) => {
+    // dashoffset w hides the dash before the start; w - s slides it to s
+    const values = [...timing.cells.map((s) => n2(w - s)), n2(w - L)].join(';');
+    return `<g fill="none" stroke="${greys[i]}" stroke-width="${wide}"`
+      + ` stroke-dasharray="${w} ${n2(L + w)}" stroke-dashoffset="${w}"><use href="#drive"/>`
+      + `<animate attributeName="stroke-dashoffset" values="${values}"`
+      + ` keyTimes="${timing.keyTimes}" dur="${n2(timing.dur)}s" repeatCount="indefinite"/></g>`;
+  });
+  return `<defs><path id="drive" d="${motionPath(route, { x: 0, y: 0 })}" pathLength="${n2(L)}"/>`
+    + `<mask id="ruts" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"`
+    + ` color-interpolation="sRGB">`
+    + windows.join('')
+    + `<use href="#drive" fill="none" stroke="#000" stroke-width="${gap}"/></mask></defs>`
+    + `<rect id="tracks" width="${W}" height="${H}" fill="rgba(${theme.inkRgb},0.16)"`
+    + ` mask="url(#ruts)" clip-path="url(#bedclip)"/>`;
+}
+
+/**
+ * What the game leaves in the air around a moving mower, in the mower's own
+ * space so it rides along: exhaust puffs off the back left, clippings out of
+ * the chute on the right. Everything starts invisible (a renderer that
+ * ignores SMIL sees a clean tractor) and the whole lot is gated off while the
+ * mower is parked off the edge.
+ */
+function mowerFx(timing, theme) {
+  const loop = (attr, values, keyTimes, dur, begin) =>
+    `<animate attributeName="${attr}" values="${values}" keyTimes="${keyTimes}"`
+    + ` dur="${dur}s"${begin ? ` begin="${begin}s"` : ''} repeatCount="indefinite"/>`;
+  const rnd = rng(11);
+  const puffs = [];
+  for (let i = 0; i < 3; i++) {
+    const begin = n2(i * 0.23);
+    puffs.push(`<circle cx="-12" cy="-6" r="1.6" fill="#8C8A84" opacity="0">`
+      + loop('cx', '-12;-104', '0;1', 0.7, begin)
+      + loop('r', '1.6;7', '0;1', 0.7, begin)
+      + loop('opacity', '0.42;0', '0;1', 0.7, begin) + '</circle>');
+  }
+  const clippings = [];
+  for (let i = 0; i < 5; i++) {
+    const begin = n2(i * 0.1);
+    const x = n2(-14 - rnd() * 30);
+    const y = n2(21 + rnd() * 12);
+    const spin = n2(200 + rnd() * 200);
+    const fill = theme.greens[2 + (i % 3)];
+    clippings.push(`<g opacity="0"><rect x="-1.8" y="-1.3" width="3.6" height="2.6" fill="${fill}"/>`
+      + `<animateTransform attributeName="transform" type="translate" values="10 13;${x} ${y}"`
+      + ` keyTimes="0;1" dur="0.5s" begin="${begin}s" repeatCount="indefinite"/>`
+      + `<animateTransform attributeName="transform" type="rotate" additive="sum"`
+      + ` values="0;${spin}" keyTimes="0;1" dur="0.5s" begin="${begin}s" repeatCount="indefinite"/>`
+      + loop('opacity', '1;1;0', '0;0.55;1', 0.5, begin) + '</g>');
+  }
+  const gate = loop('opacity', '1;1;0;0',
+    `0;${f4(timing.drive)};${f4(timing.drive + 0.002)};1`, n2(timing.dur));
+  return `<g opacity="1">${gate}${puffs.join('')}${clippings.join('')}</g>`;
 }
 
 /**
@@ -616,7 +758,7 @@ function coverGroup(lawn, theme, o, route, timing, seasonOf) {
     // starts off the board, so t is never 0. keyTimes still has to be strictly
     // increasing and end at exactly 1, so the snap that follows t must not
     // reach it: the last cell is cut a hair before the drive ends.
-    const t = (route.cuts.get(i) / route.length) * timing.drive;
+    const t = timing.at(route.cuts.get(i));
     const t2 = Math.min(t + SNAP, (1 + t) / 2);
     groups.push('<g>'
       + tileRect(c, x, y, season, theme, false)
@@ -650,7 +792,8 @@ function routeStart(route) {
 function motionPath(route, start) {
   const X = (x) => n2(px(x) - start.x);
   const Y = (z) => n2(py(z) - start.y);
-  const out = ['M0 0'];
+  const first = route.curve[0].a;
+  const out = [`M${X(first.x)} ${Y(first.z)}`];
   for (const sp of route.curve) {
     out.push(`C${X(sp.c1.x)} ${Y(sp.c1.z)} ${X(sp.c2.x)} ${Y(sp.c2.z)} ${X(sp.b.x)} ${Y(sp.b.z)}`);
   }

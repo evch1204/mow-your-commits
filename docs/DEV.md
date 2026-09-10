@@ -60,13 +60,14 @@ Two renderers share one model:
   the choice lives in `localStorage` under `mow:sound` and is restored at the first click
   or keypress of the next visit (`?sound=0` skips that restore).
 - `src/loader.js` — the username form, its states, the `?user=` param, the token box.
-- `src/core/route.js` — `planRoute(lawn, seed)`: the one wandering drive that mows every
-  grown day, as waypoints, a smoothed spline, and the arc length at which each cell is
-  cut. A greedy tour with a turn penalty, a sine weave down the rows and a sliding
-  frontier window (only the leftmost few columns of standing lawn are in play), so it
-  curves across the year instead of sweeping it row by row, and cleans up as it goes
-  instead of leaving stragglers. Only the animated export uses it, but it is pure core:
-  no DOM, no dependencies.
+- `src/core/route.js` — `planRoute(lawn, seed)`: the one drive that mows every grown
+  day, as waypoints, one cubic per span (each tagged `drive` or `turn`), and the arc
+  length at which each cell is cut. It is what a person does with a mower: a pass down
+  each row with a gentle hand-drawn weave, a round one-cell U-turn off the edge between
+  passes, rows taken evens then odds so the turns stay round (plus one wide loop back up
+  the left edge), seven passes ending on the right. It used to be a greedy tour, which
+  drawn on the board was a scribble of hairpins (`docs/plans/readme-motion.md`). Only
+  the animated export uses it, but it is pure core: no DOM, no dependencies.
 - `src/export/` — `lawnToSvg(lawn, opts)`, a pure function that draws the 2D board as SVG
   from the same geometry and palette. Used by the page's download buttons and by the
   GitHub Action. `svg.js`, `themes.js` and `font.js` touch no DOM and have no
@@ -216,7 +217,8 @@ in the `dur` of the `<animateMotion>`, and the drive ends at its second `keyTime
 
 ## Ideas
 
-- [x] the animated README lawn mows the whole year, on a wandering route
+- [x] the animated README lawn mows the whole year, in passes with round turns, leaving
+      tyre tracks, exhaust and clippings like the game
 - [ ] a hosted image URL (`/lawn.svg?user=`) for a one-line README embed
 - [ ] hand-drawn tuft and mower textures instead of procedural strokes
 - [ ] extension: content script that swaps `.js-calendar-graph` for the lawn

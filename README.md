@@ -99,15 +99,15 @@ The site's **copy workflow** button, under "or copy it yourself", hands you the 
 
 ### Options
 
-The workflow above ships `?animate=1`, so the mower wanders the whole year, drives off the
-right edge and the lawn regrows. Drop it for a still, half-mowed board. Just want the
+The workflow above ships `?animate=1`, so the mower mows the whole year in passes, leaves
+its tyre tracks behind it, drives off the right edge and the lawn regrows. Drop it for a still, half-mowed board. Just want the
 graph? `?weather=0&bg=0` gives GitHub's exact greens on a transparent background, with no
 seasons. Every option, one per output line:
 
 | option | values | what it does |
 | --- | --- | --- |
 | `theme` | `light`, `dark` | GitHub's dark ramp on `#0D1117` |
-| `animate` | `1` | the mower mows the whole year on a wandering route, then it regrows (`mowed` is ignored) |
+| `animate` | `1` | the mower mows the whole year row by row, then it regrows (`mowed` is ignored) |
 | `weather` | `0` | no seasons: no doodles, frost, leaves or blossom, and GitHub's exact greens |
 | `bg` | `0` | no paper behind the board: a transparent picture |
 | `year` | `2025` | a calendar year instead of the rolling 52 weeks |

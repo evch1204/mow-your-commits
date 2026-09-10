@@ -1,68 +1,51 @@
-// One wandering pass that mows the whole year. Pure data + maths, no DOM, no
+// One drive that mows the whole year. Pure data + maths, no DOM, no
 // dependencies: the exported SVG animation and its tests both run on this.
 //
-// The shape of the problem is a travelling-salesman tour over every grown day,
-// but a *pretty* tour matters more than a short one: a plain nearest-neighbour
-// walk on a 7-row field settles into "one row, then the next row", which is the
-// picture we already had. So the cost function carries three extra terms — a
-// turn penalty, so the mower keeps its line; a sine wave down the rows that the
-// route is pulled toward, so it crosses the field in waves instead of sweeping
-// it; and a sliding frontier window, so the drive cleans up as it goes and the
-// picture reads as cut lawn on the left, standing lawn on the right, with a
-// wandering boundary between. Tune these by looking at the animation.
+// The drive is what a person does with a riding mower: long passes along the
+// rows, a round U-turn off the edge of the board between passes, and a gentle
+// hand-drawn weave down each pass so the tractor steers rather than slides.
+// Rows are taken evens then odds (0 2 4 6, then 1 3 5): every U-turn then has a
+// one-cell radius, bar one wide loop back up the left edge, and seven passes
+// end on the right where the loop parks. A pass down a row cuts that row and
+// nothing else (MOW_RADIUS 0.67 against a 1-cell pitch, weave under 0.3), so
+// every grown day sits on a pass. `mowWalk` proves it anyway: a route with a
+// hole in it would ship a tuft that never gets cut into somebody's README.
+//
+// It used to be a greedy tour with a turn penalty; drawn on the board that was
+// a scribble of hairpins, and `rotate="auto"` swung the mower round each one.
 
 import { MOW_RADIUS, BLADE_OFFSET, rng } from './lawn.js';
 
-/** Cells per radian of turn: how much the mower dislikes swinging round. */
-const TURN_W = 1.15;
-/** How hard the weave pulls the next pick toward the wave. */
-const DRIFT_W = 1.2;
-/** A little noise, so the tour is not a lattice. */
-const JITTER = 0.7;
+/** Where the drive starts and parks, in cells past the board edges. */
+const ENTRY_X = -4.5;
+const PARK_X = 2.5;
+/** How far past the edge a pass runs before the U-turn begins. */
+const OVER = 0.6;
+/** The first weave knot: the run-in from off screen stays straight. */
+const RUN_IN = 3.5;
 /**
- * The frontier. A greedy tour left to itself races to the far end and then
- * spends the rest of the loop coming back for the days it skipped, which reads
- * as a scribble. So only the leftmost WINDOW cells of *unmowed* lawn are in
- * play: anything past that is charged FRONT_W per cell. Nothing is left
- * standing because the loop re-computes the frontier from what is still
- * unmowed after every pick; the cost only steers the mower toward the near
- * edge of the window rather than the far end of the year.
+ * The weave: half-wave length and amplitude ranges, in cells. Amplitude must
+ * stay under 1 - MOW_RADIUS or a pass would nick the row beside it.
  */
-const FRONT_W = 4;
-const WINDOW = 2.5;
-/** The weave: rows either side of the middle, and its wavelength in cells. */
-const WAVE_A = 3.4;
-const WAVE_L = 2.6;
-
-/** Marking cells mowed along a straight pick, in cells. */
-const MARK_STEP = 0.2;
-/** How finely the smoothed curve is walked when working out what it cuts. */
+const WEAVE_LEN = [3, 5];
+const WEAVE_AMP = [0.1, 0.22];
+/** A quarter circle as a cubic: control points at KAPPA x radius. */
+const KAPPA = 0.5523;
+/** How finely the curve is walked when working out what it cuts. */
 const FINE = 0.02;
 
-/** Centripetal Catmull-Rom, and a cap on how far a control point may reach. */
-const ALPHA = 0.5;
-const MAX_CTRL = 0.42;   // x the span length; a hairpin would otherwise loop
-
 const dist = (a, b) => Math.hypot(b.x - a.x, b.z - a.z);
-
-/** Signed turn from heading `h` to angle `a`, folded into [-PI, PI]. */
-function turn(h, a) {
-  let d = a - h;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return d;
-}
 
 /**
  * Plan the drive.
  *
  * @param lawn from createLawn(); never mutated.
- * @param seed picks the entry row, the phase of the weave and the jitter.
+ * @param seed picks top-down or bottom-up, and the weave.
  * @returns {{
- *   waypoints: Array<{x, z}>,     // cell units, the frame lawn.mower lives in
- *   curve: Array<{a, c1, c2, b}>, // the smoothed spline, one cubic per span
- *   cuts: Map<number, number>,    // cell index -> arc length at which it is cut
- *   length: number,               // total arc length, in cells
+ *   waypoints: Array<{x, z}>,           // cell units, the frame lawn.mower lives in
+ *   curve: Array<{a, c1, c2, b, kind}>, // one cubic per span; kind 'drive' | 'turn'
+ *   cuts: Map<number, number>,          // cell index -> arc length at which it is cut
+ *   length: number,                     // total arc length, in cells
  * }}
  * `cuts` has an entry for every mowable cell; a route that cannot reach one
  * throws rather than returning a drive that leaves a tuft standing.
@@ -80,169 +63,122 @@ export function planRoute(lawn, seed = 7) {
     targets.push({ i, x: c.col + 0.5, z: c.row + 0.5 });
   }
 
-  const z0 = 1.5 + rnd() * Math.max(0, rows - 3);
-  const phase = rnd() * Math.PI * 2;
-  // clear of the picture, like the exit: at -3.5 the mower's nose still pokes
-  // past the left edge at t=0, which reads as a sliver of tractor parked on the
-  // Mon/Wed/Fri labels rather than as a mower about to drive on
-  const start = { x: -4.5, z: z0 };
+  const evens = [];
+  const odds = [];
+  for (let r = 0; r < rows; r++) (r % 2 ? odds : evens).push(r);
+  const order = rnd() < 0.5
+    ? [...evens, ...odds]
+    : [...evens.reverse(), ...odds.reverse()];
 
-  const waypoints = targets.length
-    ? tour(targets, start, rows, phase, rnd)
-    : [start];
-  // far enough past the last column that the whole mower clears the picture:
-  // the loop parks it here while the year regrows, and half a mower stuck to
-  // the right edge reads as a bug rather than a pause
-  const last = waypoints[waypoints.length - 1];
-  waypoints.push({ x: cols + 2.5, z: last.z });
-
-  // The smoothed curve bows away from the straight picks, so a cell the greedy
-  // pass thought it had covered can survive. Walk, patch, walk again. Patching
-  // one cell can move the curve off another, so keep going: a route that misses
-  // a day leaves a tuft standing in somebody's README for a whole loop.
-  let curve = beziers(waypoints);
-  let walk = mowWalk(curve, targets, lawn);
-  for (let pass = 0; pass < 10 && walk.missed.length; pass++) {
-    for (const m of walk.missed) insertCheapest(waypoints, m);
-    curve = beziers(waypoints);
-    walk = mowWalk(curve, targets, lawn);
+  const curve = [];
+  const left = -OVER;
+  const right = cols + OVER;
+  for (let i = 0; i < order.length; i++) {
+    const z = order[i] + 0.5;
+    const east = i % 2 === 0;               // pass 0 heads +x, then alternate
+    const first = i === 0;
+    const last = i === order.length - 1;
+    const x0 = first ? ENTRY_X : (east ? left : right);
+    const x1 = last ? (east ? cols + PARK_X : -PARK_X) : (east ? right : left);
+    pass(curve, x0, x1, z, rnd, first);
+    if (!last) uturn(curve, x1, z, order[i + 1] + 0.5, east ? 1 : -1);
   }
+
+  const waypoints = curve.map((sp) => sp.a);
+  waypoints.push(curve[curve.length - 1].b);
+
+  const walk = mowWalk(curve, targets, lawn);
   // Loud beats wrong: a route with a hole in it would ship a tuft that never
   // gets cut into somebody's README, on a loop, forever.
   if (walk.missed.length) {
-    throw new Error(`planRoute: ${walk.missed.length} cell(s) still uncut after 10 passes`);
+    throw new Error(`planRoute: ${walk.missed.length} cell(s) not on any pass`);
   }
 
   return { waypoints, curve, cuts: walk.cuts, length: walk.length };
 }
 
 /**
- * Greedy tour with a turn penalty and a weave. From the current point, pick the
- * unmowed cell that is cheap to reach *and* near where the wave currently is,
- * then mow everything the straight run there passes over.
+ * One pass along row centre `z` from x0 to x1: a chain of cubics between
+ * weave knots, each with a level tangent, so the tractor eases from side to
+ * side like a hand steering it. The knots alternate above and below the row
+ * and the pass starts and ends dead centre, where the U-turns pick it up.
  */
-function tour(targets, start, rows, phase, rnd) {
-  const left = targets.map((t) => ({ x: t.x, z: t.z, done: false }));
-  let n = left.length;
-  let p = start;
-  let h = 0;              // heading: the mower enters driving +x
-  let s = 0;              // arc length so far, in cells
-  const out = [p];
-
-  while (n > 0) {
-    const zWant = rows / 2 + WAVE_A * Math.sin(s / WAVE_L + phase);
-    // the frontier: the leftmost column of lawn still standing
-    let xMin = Infinity;
-    for (const c of left) if (!c.done && c.x < xMin) xMin = c.x;
-    const edge = xMin + WINDOW;
-    let best = -1;
-    let bestCost = Infinity;
-    for (let k = 0; k < left.length; k++) {
-      const c = left[k];
-      if (c.done) continue;
-      const d = dist(p, c);
-      const cost = d
-        + TURN_W * Math.abs(turn(h, Math.atan2(c.z - p.z, c.x - p.x)))
-        + DRIFT_W * Math.abs(c.z - zWant)
-        + FRONT_W * Math.max(0, c.x - edge)
-        + JITTER * rnd();
-      if (cost < bestCost) { bestCost = cost; best = k; }
-    }
-    const c = left[best];
-    const to = { x: c.x, z: c.z };
-    n -= sweep(left, p, to);
-    h = Math.atan2(to.z - p.z, to.x - p.x);
-    s += dist(p, to);
-    p = to;
-    out.push(p);
+function pass(out, x0, x1, z, rnd, runIn) {
+  const dir = Math.sign(x1 - x0);
+  const len = Math.abs(x1 - x0);
+  const knots = [{ x: x0, dz: 0 }];
+  let s = runIn ? RUN_IN : 0;
+  let side = rnd() < 0.5 ? 1 : -1;
+  if (runIn) knots.push({ x: x0 + dir * s, dz: 0 });
+  for (;;) {
+    s += WEAVE_LEN[0] + rnd() * (WEAVE_LEN[1] - WEAVE_LEN[0]);
+    // the last knot is the pass end, level again: leave room for a full swing
+    if (s > len - WEAVE_LEN[0]) break;
+    const amp = WEAVE_AMP[0] + rnd() * (WEAVE_AMP[1] - WEAVE_AMP[0]);
+    knots.push({ x: x0 + dir * s, dz: side * amp });
+    side = -side;
   }
-  return out;
-}
-
-/** Mark every cell the straight run `a -> b` passes over. Returns how many. */
-function sweep(left, a, b) {
-  const len = dist(a, b);
-  const steps = Math.max(1, Math.ceil(len / MARK_STEP));
-  const r2 = MOW_RADIUS * MOW_RADIUS;
-  let cut = 0;
-  for (let k = 0; k < left.length; k++) {
-    const c = left[k];
-    if (c.done) continue;
-    for (let i = 0; i <= steps; i++) {
-      const f = i / steps;
-      const dx = c.x - (a.x + (b.x - a.x) * f);
-      const dz = c.z - (a.z + (b.z - a.z) * f);
-      if (dx * dx + dz * dz < r2) { c.done = true; cut++; break; }
-    }
+  knots.push({ x: x1, dz: 0 });
+  for (let i = 1; i < knots.length; i++) {
+    const p = knots[i - 1];
+    const q = knots[i];
+    const h = (q.x - p.x) / 3;
+    out.push({
+      a: { x: p.x, z: z + p.dz },
+      c1: { x: p.x + h, z: z + p.dz },
+      c2: { x: q.x - h, z: z + q.dz },
+      b: { x: q.x, z: z + q.dz },
+      kind: 'drive',
+    });
   }
-  return cut;
 }
-
-/** Slot a stranded cell into the cheapest gap between two waypoints. */
-function insertCheapest(waypoints, cell) {
-  const c = { x: cell.x, z: cell.z };
-  let at = 1;
-  let best = Infinity;
-  for (let i = 0; i + 1 < waypoints.length; i++) {
-    const add = dist(waypoints[i], c) + dist(c, waypoints[i + 1])
-      - dist(waypoints[i], waypoints[i + 1]);
-    if (add < best) { best = add; at = i + 1; }
-  }
-  waypoints.splice(at, 0, c);
-}
-
-// --- the smoothed curve ---------------------------------------------------
-
-const refl = (a, b) => ({ x: 2 * a.x - b.x, z: 2 * a.z - b.z });
 
 /**
- * Centripetal Catmull-Rom through the waypoints, as one cubic Bezier per span.
- * The ends get a reflected phantom point so the drive on and off the field
- * carries straight on. Control points are capped: the greedy tour makes the odd
- * hairpin, and an uncapped spline answers those with a loop.
+ * A half circle from (xe, zFrom) heading `dir` (+1 for +x) round to (xe, zTo)
+ * heading back, as two quarter arcs. Radius is half the row gap, so a skip of
+ * two rows turns on one cell and the loop back up the board turns wide.
  */
-function beziers(pts) {
-  if (pts.length < 2) return [];
-  const n = pts.length;
-  const ext = [refl(pts[0], pts[1]), ...pts, refl(pts[n - 1], pts[n - 2])];
-  const out = [];
-  for (let i = 1; i + 2 < ext.length; i++) {
-    out.push(span(ext[i - 1], ext[i], ext[i + 1], ext[i + 2]));
-  }
-  return out;
+function uturn(out, xe, zFrom, zTo, dir) {
+  const r = Math.abs(zTo - zFrom) / 2;
+  const sg = Math.sign(zTo - zFrom);
+  const k = KAPPA * r;
+  const mid = { x: xe + dir * r, z: zFrom + sg * r };
+  out.push({
+    a: { x: xe, z: zFrom },
+    c1: { x: xe + dir * k, z: zFrom },
+    c2: { x: xe + dir * r, z: zFrom + sg * (r - k) },
+    b: mid,
+    kind: 'turn',
+  });
+  out.push({
+    a: mid,
+    c1: { x: xe + dir * r, z: zFrom + sg * (r + k) },
+    c2: { x: xe + dir * k, z: zTo },
+    b: { x: xe, z: zTo },
+    kind: 'turn',
+  });
 }
 
-function span(p0, p1, p2, p3) {
-  const d1 = Math.max(1e-6, Math.pow(dist(p0, p1), ALPHA));
-  const d2 = Math.max(1e-6, Math.pow(dist(p1, p2), ALPHA));
-  const d3 = Math.max(1e-6, Math.pow(dist(p2, p3), ALPHA));
-  const c1 = {};
-  const c2 = {};
-  for (const k of ['x', 'z']) {
-    c1[k] = (d1 * d1 * p2[k] - d2 * d2 * p0[k]
-      + (2 * d1 * d1 + 3 * d1 * d2 + d2 * d2) * p1[k]) / (3 * d1 * (d1 + d2));
-    c2[k] = (d3 * d3 * p1[k] - d2 * d2 * p3[k]
-      + (2 * d3 * d3 + 3 * d3 * d2 + d2 * d2) * p2[k]) / (3 * d3 * (d3 + d2));
-  }
-  const cap = MAX_CTRL * dist(p1, p2);
-  return { a: p1, c1: clamp(p1, c1, cap), c2: clamp(p2, c2, cap), b: p2 };
-}
-
-/** Pull a control point back toward its anchor if it reaches too far. */
-function clamp(anchor, c, cap) {
-  const d = dist(anchor, c);
-  if (d <= cap || d === 0) return c;
-  const f = cap / d;
-  return { x: anchor.x + (c.x - anchor.x) * f, z: anchor.z + (c.z - anchor.z) * f };
-}
-
-function bezAt(sp, t) {
+/** A point on a span, t in 0..1. */
+export function bezAt(sp, t) {
   const u = 1 - t;
   const w0 = u * u * u, w1 = 3 * u * u * t, w2 = 3 * u * t * t, w3 = t * t * t;
   return {
     x: w0 * sp.a.x + w1 * sp.c1.x + w2 * sp.c2.x + w3 * sp.b.x,
     z: w0 * sp.a.z + w1 * sp.c1.z + w2 * sp.c2.z + w3 * sp.b.z,
   };
+}
+
+/** Arc length of one span, by sampling. */
+export function spanLength(sp, steps = 24) {
+  let s = 0;
+  let p = sp.a;
+  for (let i = 1; i <= steps; i++) {
+    const q = bezAt(sp, i / steps);
+    s += dist(p, q);
+    p = q;
+  }
+  return s;
 }
 
 // --- walking it -----------------------------------------------------------

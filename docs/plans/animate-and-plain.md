@@ -8,6 +8,10 @@ Three changes to the exported picture (`src/export/svg.js`, the Action, the docs
 The site's 2D/3D renderers are not touched. Everything here must stay pure and
 dependency-free: the Action runs `scripts/render-svg.mjs` with no `node_modules`.
 
+> **Superseded, 2026-09-10.** The wandering tour below shipped and turned out to be a
+> scribble of hairpins on the board. `readme-motion.md` replaced it with row passes,
+> round turns and the game's tyre tracks, exhaust and clippings. Kept for the record.
+
 ## 1. `animate=1` mows the whole year on a wandering route
 
 Today `animate=1` drives one row back and forth on an 8 s loop. Replace it: the mower
