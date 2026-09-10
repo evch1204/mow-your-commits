@@ -4,6 +4,7 @@ import {
   createLawn, resetLawn, tick, progress, COLS, ROWS, MAX_COLS,
   describeCell, formatTime, formatDay, periodLabel, tempAt,
   gridForYear, gridForRolling, layoutYear, placeMower, isoDay,
+  BLADE_OFFSET, COMBO_WINDOW,
 } from '../src/core/lawn.js';
 import {
   GRASS, grassFor, tileColor, bladeColor, cellTint, hexToRgb, mix, SEASON_TINT,
@@ -14,7 +15,10 @@ import { GEOM } from '../src/core/board.js';
 import { lawnToSvg } from '../src/export/svg.js';
 import { THEMES } from '../src/export/themes.js';
 import { daysForYear, daysForRolling, yearsIn } from '../src/core/contrib.js';
-import { workflowYaml, markdownSnippet, shareUrl, SITE } from '../src/share.js';
+import {
+  workflowYaml, markdownSnippet, shareUrl, SITE, bragText,
+  newWorkflowUrl, actionsUrl, editReadmeUrl, newRepoUrl, WORKFLOW_PATH,
+} from '../src/share.js';
 import {
   parseUserInput, normaliseApi, clampLevel, GithubError,
   fetchContributions, readCache, writeCache, CACHE_TTL, STALE_OK, MAX_CACHED,
@@ -1131,6 +1135,106 @@ for (const key of ['github_user_name', 'outputs']) {
   ok(`the workflow's "${key}" is an input of action.yml`,
     yaml.includes(key + ':') && actionYml.includes('  ' + key + ':'));
 }
+
+// --- the three-click install links ----------------------------------------
+// Everything the README strip's buttons open. A stranger's typing reaches
+// github.com through these, so each one goes through parseUserInput and hands
+// back '' for anything that is not a login - the page shows the nudge instead.
+
+const INSTALL = { newWorkflowUrl, actionsUrl, editReadmeUrl, newRepoUrl };
+
+ok('the workflow button opens GitHub\'s new-file editor, pre-filled',
+  newWorkflowUrl('torvalds')
+    === 'https://github.com/torvalds/torvalds/new/main'
+      + '?filename=' + encodeURIComponent(WORKFLOW_PATH)
+      + '&value=' + encodeURIComponent(workflowYaml()),
+  newWorkflowUrl('torvalds').slice(0, 120));
+ok('and the yaml it carries is the yaml the copy button copies',
+  decodeURIComponent(new URL(newWorkflowUrl('torvalds')).searchParams.get('value'))
+    === workflowYaml());
+ok('the pre-filled path is the one GitHub runs workflows from',
+  new URL(newWorkflowUrl('torvalds')).searchParams.get('filename')
+    === '.github/workflows/lawn.yml');
+
+ok('"run it once" opens the workflow\'s own page',
+  actionsUrl('torvalds')
+    === 'https://github.com/torvalds/torvalds/actions/workflows/lawn.yml');
+ok('"open your README" opens the profile README in the editor',
+  editReadmeUrl('torvalds') === 'https://github.com/torvalds/torvalds/edit/main/README.md');
+ok('"create it" pre-fills the new-repo form with the login as the name', (() => {
+  const q = new URL(newRepoUrl('torvalds')).searchParams;
+  return new URL(newRepoUrl('torvalds')).pathname === '/new'
+    && q.get('name') === 'torvalds' && q.get('owner') === 'torvalds'
+    && q.get('visibility') === 'public';
+})(), newRepoUrl('torvalds'));
+
+// an @handle and a profile link are the same login as far as the buttons care
+for (const [name, fn] of Object.entries(INSTALL)) {
+  ok(`${name} takes an @handle`, fn(' @torvalds ') === fn('torvalds'));
+  ok(`${name} takes a profile link`,
+    fn('https://github.com/torvalds?tab=repositories') === fn('torvalds'));
+  ok(`${name} says '' for junk`,
+    fn('not a login!') === '' && fn('') === '' && fn(null) === '' && fn(undefined) === '');
+}
+
+// nothing a stranger types can break out of the URL
+for (const [name, fn] of Object.entries(INSTALL)) {
+  ok(`${name} never leaves github.com`,
+    fn('torvalds') === '' || new URL(fn('torvalds')).origin === 'https://github.com');
+}
+
+// --- the combo -------------------------------------------------------------
+// Cuts that land inside COMBO_WINDOW of each other build a run; a pause breaks
+// it. The renderers read `lawn.combo` for the +N popup and the HUD shows it.
+
+const cl = createLawn(null, { seed: 7 });
+ok('a fresh lawn has no combo',
+  cl.combo === 0 && cl.bestCombo === 0 && cl.lastCutAt < 0);
+
+/**
+ * Cut one cell by hand at `at` seconds, the way tick() would: park the blade
+ * on the next standing cell and step the real simulation by a zero-length
+ * frame, so the clock is ours and the combo logic under test is the shipped one.
+ */
+let cuts = 0;
+function cutAt(l, at) {
+  const c = l.cells.find((x) => !x.mowed && !x.void);
+  if (!c) return;
+  l.time = at;
+  l.started = true;
+  const before = l.mowed;
+  l.mower.x = c.col + 0.5 - BLADE_OFFSET;
+  l.mower.z = c.row + 0.5;
+  l.mower.angle = 0;
+  l.mower.vel = 0;
+  tick(l, idle, 0);
+  if (l.mowed === before + 1) cuts++;
+}
+
+cutAt(cl, 0);
+ok('the hand-driven blade cuts exactly one cell', cuts === 1, String(cuts));
+ok('the first cut opens a run at x1', cl.combo === 1 && cl.bestCombo === 1);
+cutAt(cl, 0.5);
+cutAt(cl, 1.0);
+ok('cuts inside the window stack up', cl.combo === 3 && cl.bestCombo === 3, String(cl.combo));
+cutAt(cl, 2.5);
+ok('a pause longer than the window drops back to x1', cl.combo === 1);
+ok('but the best of the run is remembered', cl.bestCombo === 3);
+cutAt(cl, 2.5 + COMBO_WINDOW);
+ok('exactly the window still counts', cl.combo === 2, String(cl.combo));
+cutAt(cl, 2.5 + COMBO_WINDOW * 2 + 0.01);
+ok('a hair past it does not', cl.combo === 1, String(cl.combo));
+
+ok('regrow puts the combo back to nothing', (() => {
+  resetLawn(cl);
+  return cl.combo === 0 && cl.bestCombo === 0 && cl.lastCutAt < 0;
+})());
+
+ok('the brag keeps quiet about a short run',
+  !bragText({ totalContributions: 5, time: 61, bestCombo: 4 }, '', 'in 2025').includes('combo'));
+ok('and mentions a long one',
+  bragText({ totalContributions: 5, time: 61, bestCombo: 21 }, '', 'in 2025')
+    .includes('(best combo x21)'));
 
 console.log(failures ? `\n${failures} FAILED` : '\nall good');
 process.exit(failures ? 1 : 0);

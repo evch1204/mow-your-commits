@@ -11,6 +11,11 @@ export const SITE = 'https://evch1204.github.io/mow-your-commits/';
 /** The `USER/USER` profile repo the Action commits into. */
 const RAW = 'https://raw.githubusercontent.com';
 
+const GH = 'https://github.com';
+
+/** Where the workflow has to land for GitHub to run it. */
+export const WORKFLOW_PATH = '.github/workflows/lawn.yml';
+
 /**
  * Whose lawn is on screen. The loader puts the login it actually resolved in
  * the box, so that is the truth; `?user=` is the fallback for a page whose
@@ -87,6 +92,61 @@ jobs:
         env: { GITHUB_TOKEN: "\${{ secrets.GITHUB_TOKEN }}" }`;
 }
 
+// --- the three-click install ----------------------------------------------
+// Four links into github.com that between them put the lawn in a README
+// without anybody copying a file by hand. Each takes whatever the visitor
+// typed, runs it through `parseUserInput` (a login, an @handle or a profile
+// link all land on the same bare login) and returns '' for anything else, so
+// the page can tell "no account yet" from "here is your button".
+
+/** The bare login, or '' if there is not one. */
+function login(user) {
+  return parseUserInput(user) || '';
+}
+
+/**
+ * Step 1. GitHub's own new-file editor pre-fills from the query string:
+ * `?filename=` names the path and `?value=` fills the buffer, so this opens a
+ * "commit new file" page with `.github/workflows/lawn.yml` already written.
+ * Nothing is committed until the visitor presses GitHub's own commit button.
+ */
+export function newWorkflowUrl(user) {
+  const u = login(user);
+  if (!u) return '';
+  return `${GH}/${u}/${u}/new/main?filename=${encodeURIComponent(WORKFLOW_PATH)}`
+    + `&value=${encodeURIComponent(workflowYaml())}`;
+}
+
+/** Step 2. The workflow's own page, where "Run workflow" lives. */
+export function actionsUrl(user) {
+  const u = login(user);
+  return u ? `${GH}/${u}/${u}/actions/workflows/lawn.yml` : '';
+}
+
+/** Step 3. The profile README, open in GitHub's editor, ready for a paste. */
+export function editReadmeUrl(user) {
+  const u = login(user);
+  return u ? `${GH}/${u}/${u}/edit/main/README.md` : '';
+}
+
+/**
+ * The escape hatch under step 3: no `you/you` repo yet. `github.com/new` takes
+ * `owner`, `name`, `description` and `visibility` as pre-fills (GitHub added
+ * them in April 2023), and quietly ignores any it cannot honour - so the worst
+ * case is the ordinary new-repo form.
+ */
+export function newRepoUrl(user) {
+  const u = login(user);
+  if (!u) return '';
+  const q = new URLSearchParams({
+    owner: u,
+    name: u,
+    description: 'my GitHub contribution graph, as a lawn, mowed nightly',
+    visibility: 'public',
+  });
+  return `${GH}/new?${q}`;
+}
+
 /**
  * Remember what a button said before it started flashing at people. Reading it
  * back off the button loses the real label as soon as somebody clicks twice
@@ -127,10 +187,14 @@ function commas(n) {
 /**
  * The line the end card copies. It always ends in a link, so whoever reads it
  * can go and mow their own graph - that is the whole point of the button.
+ * A long run of back-to-back cuts is the thing worth boasting about, so the
+ * best combo joins in once it is big enough to be an achievement.
  */
 export function bragText(lawn, user, when, whose = 'my') {
+  const best = (lawn && lawn.bestCombo) || 0;
   return 'I mowed ' + whose + ' GitHub lawn: ' + commas(lawn.totalContributions)
     + ' contributions ' + when + ', cut in ' + formatTime(lawn.time)
+    + (best >= 5 ? ' (best combo x' + best + ')' : '')
     + ' 🌱🚜 mow yours: ' + shareUrl(user);
 }
 
