@@ -10,11 +10,11 @@
 import {
   MONTH_NAMES, SEASON_GLYPH, SEASON_OF_MONTH, seasonIndexOfCol, periodLabel, rng, hash,
 } from '../core/lawn.js';
-import { GEOM, SPREAD } from '../core/board.js';
+import { GEOM } from '../core/board.js';
 import { planRoute } from '../core/route.js';
+import { Z, grassOps } from '../core/grass.js';
 import {
-  AUTUMN_BLADE, FLOWERS, ORANGE, CREAM, SUN, PETAL, DANDELION, FLUFF, NO_SEASON,
-  grassFor, cellTint, tileColor, bladeColor, mix, stripe,
+  ORANGE, CREAM, SUN, PETAL, DANDELION, NO_SEASON, tileColor, mix, stripe,
 } from '../core/palette.js';
 import { themeFor } from './themes.js';
 import { PATRICK_HAND_WOFF2_B64, FONT_STACK } from './font.js';
@@ -103,104 +103,66 @@ const px = (x) => OX + x * PITCH - GAP / 2;
 const py = (z) => OY + z * PITCH - GAP / 2;
 
 /**
- * One overgrown tuft, as path data pushed into `bag` (a Map keyed by
- * "colour|width"). A literal port of render2d's drawGrass + blade: the blades
- * are laid out first (so the two tallest of a level 3/4 day can take a darker
- * tip), then drawn, and every number comes from `grassFor(level, vigor)`.
- * `mowed` is whether this picture shows the day cut, which is not `cell.mowed`:
- * see `mowedFor` below.
+ * One day's grass, as the ops src/core/grass.js hands back. The canvas replays
+ * the same list; this file turns it into path data. `mowed` is whether this
+ * picture shows the day cut, which is not `cell.mowed`: see `mowedFor` below,
+ * and a cut day grows nothing, because the clean GitHub tile is the point.
  */
-function tuft(bag, dots, over, x, y, cell, mowed, season, theme, o, scale) {
-  const level = cell.level;
-  if (cell.void || level === 0) return;
-  const shrink = mowed ? 0.12 : 1;                    // mowT is 1 in a still
-  const g = grassFor(level, cell.vigor || 0);
-  const n = Math.max(1, Math.round(g.blades * (mowed ? 0.5 : 1)));
-  const h0 = g.height * shrink * scale;
-  if (h0 < 1.2) return;
-
+function cellOps(cell, x, y, mowed, season, theme, o, scale) {
+  if (cell.void || !cell.level) return [];
   const rnd = rng((cell.col * 31 + cell.row * 7) * 131 + o.seed * 131 + 1);
   rnd(); rnd();                                       // render2d skips two here
-  const wob = (v, a) => v + (rnd() - 0.5) * a;
+  return grassOps(cell, x, y, season, {
+    rnd, ramp: theme, scale, mowT: mowed ? 1 : 0,
+  });
+}
 
-  const cx = x + CELL / 2;
-  const base = y + CELL - 1;
-  const spread = SPREAD(level) * scale;
-  const color = cellTint(bladeColor(level, season, theme), cell.col, cell.row);
-  const dark = mix(color, theme.ink, 0.25);
-  const bias = (hash(cell.col) - 0.5) * 4;            // the patch leans as one
-  const w = n2(g.width);
+/** Grass is jitter: one decimal is under a tenth of a pixel and half the bytes. */
+function n1(v) {
+  const r = Math.round(v * 10) / 10;
+  return Object.is(r, -0) ? '0' : String(r);
+}
 
-  const blades = [];
-  for (let i = 0; i < n; i++) {
-    const f = n === 1 ? 0.5 : i / (n - 1);
-    blades.push({
-      bx: cx - spread + f * spread * 2 + (rnd() - 0.5) * 2,
-      h: h0 * (0.8 + rnd() * 0.4),
-      lean: bias + (rnd() - 0.5) * (5 + level),
-      turned: season === 3 && rnd() < 0.15,
-      tall: false,
-    });
+/** An ellipse as path data, so an op of any kind can join a batched <path>. */
+function ovalD(cx, cy, rx, ry) {
+  return `M${n1(cx - rx)} ${n1(cy)}a${n1(rx)} ${n1(ry)} 0 1 0 ${n1(rx * 2)} 0`
+    + `a${n1(rx)} ${n1(ry)} 0 1 0 ${n1(-rx * 2)} 0Z`;
+}
+
+function opD(op) {
+  if (op.t === 'oval') return ovalD(op.x, op.y, op.rx, op.ry);
+  let d = '';
+  for (const seg of op.d) {
+    if (seg[0] === 'Z') { d += 'Z'; continue; }
+    d += seg[0] + n1(seg[1]) + ' ' + n1(seg[2]);
+    if (seg.length > 3) d += ' ' + n1(seg[3]) + ' ' + n1(seg[4]);
   }
-  if (level >= 3) {
-    [...blades].sort((a, b) => b.h - a.h).slice(0, 2).forEach((b) => { b.tall = true; });
-  }
+  return d;
+}
 
-  for (let i = 0; i < blades.length; i++) {
-    const b = blades[i];
-    const col = b.turned ? AUTUMN_BLADE : color;
-    const d = `M${n2(wob(b.bx, 0.5))} ${n2(base)}`
-      + `Q${n2(wob(b.bx + b.lean * 0.35, 0.8))} ${n2(wob(base - b.h * 0.62, 0.8))} `
-      + `${n2(wob(b.bx + b.lean, 0.6))} ${n2(wob(base - b.h, 0.6))}`;
-    push(bag, col + '|' + w, d);
+/** Ops that share a fill, a stroke and a width can be one <path>. */
+const opKey = (op) => `${op.fill || ''}|${op.stroke || ''}|${op.w || 0}`;
 
-    const tip = [b.bx + b.lean, base - b.h];
-    if (b.tall && !b.turned) {
-      // the top third of the tallest blades falls into shadow
-      push(bag, dark + '|' + w,
-        lineD(tip[0] - b.lean * 0.22, tip[1] + b.h * 0.3, tip[0], tip[1]));
+function opAttrs(key) {
+  const [fill, stroke, w] = key.split('|');
+  return `fill="${fill || 'none'}"`
+    + (stroke && Number(w) > 0 ? ` stroke="${stroke}" stroke-width="${w}"` : '');
+}
+
+/**
+ * A run of cells' ops, one layer at a time, each layer batched by colour: the
+ * exact order render2d paints a row in, so the ink stacks the same way.
+ */
+function opsToPaths(list) {
+  const out = [];
+  for (let z = Z.SHADOW; z <= Z.ACCENT; z++) {
+    const bag = new Map();
+    for (const ops of list) {
+      for (const op of ops) if (op.z === z) push(bag, opKey(op), opD(op));
     }
-    if (level === 4 && !mowed && i % 4 === 1) push(dots, col, circleD(tip[0], tip[1], 1.3));
-    if (season === 0 && level >= 3 && !mowed && i % 3 === 0) {
-      push(dots, '#FFFFFF', circleD(tip[0], tip[1] - 0.4, 1.5));
-    }
+    if (bag.size) out.push(batched(bag, opAttrs));
   }
-
-  // the best days of the year put up a dandelion and a seed-head puff
-  if (cell.heroic && !mowed && season !== 0) {
-    const st = h0 + 5;
-    for (let d = 0; d < 2; d++) {
-      const dx = cx + (d ? 4.5 : -4) + (rnd() - 0.5) * 2;
-      const top = base - st * (d ? 0.82 : 1);
-      const hx = dx + bias * 0.4;
-      // render2d draws the stalk with line(), which wobbles six numbers
-      push(bag, theme.ink + '|1',
-        `M${n2(wob(dx, 0.6))} ${n2(wob(base, 0.6))}`
-        + `Q${n2(wob((dx + hx) / 2, 0.9))} ${n2(wob((base + top) / 2, 0.9))} `
-        + `${n2(wob(hx, 0.6))} ${n2(wob(top, 0.6))}`);
-      if (d === 0) {
-        push(dots, DANDELION, circleD(hx, top, 2.4));
-        push(over, theme.ink + '|0.8', circleD(hx, top, 2.4));
-      } else {
-        push(dots, FLUFF, circleD(hx, top, 2.2));
-        for (let k = 0; k < 4; k++) {
-          const a = k * 1.57 + 0.4;
-          push(over, theme.ink + '|0.6', lineD(
-            hx + Math.cos(a) * 1.6, top + Math.sin(a) * 1.6,
-            hx + Math.cos(a) * 3.4, top + Math.sin(a) * 3.4,
-          ));
-        }
-      }
-    }
-  }
-
-  // spring puts a couple of flowers in the thin grass
-  if (season === 1 && level <= 2 && !mowed) {
-    for (let f = 0; f < 2; f++) {
-      const col = FLOWERS[Math.floor(rnd() * FLOWERS.length)];
-      push(dots, col, circleD(cx + (rnd() - 0.5) * CELL * 0.7, base - 2 - rnd() * h0, 1.5));
-    }
-  }
+  return out.join('');
 }
 
 function push(map, key, d) {
@@ -212,18 +174,6 @@ function batched(map, attrsFor) {
   const out = [];
   for (const [key, ds] of map) out.push(`<path ${attrsFor(key)} d="${ds.join('')}"/>`);
   return out.join('');
-}
-
-/** "#hex|width" keyed path bags: every blade of one colour in one <path>. */
-const strokeAttrs = (k) => {
-  const [col, w] = k.split('|');
-  return `stroke="${col}" stroke-width="${w}"`;
-};
-
-/** A stroked group: blades, stalks, the ink on a dandelion. */
-function strokes(id, map) {
-  return `<g${id ? ` id="${id}"` : ''} fill="none" stroke-linecap="round">`
-    + batched(map, strokeAttrs) + '</g>';
 }
 
 /** The riding mower, in its own local space. Port of render2d's mower(). */
@@ -401,21 +351,21 @@ export function lawnToSvg(lawn, opts) {
       + ` stroke-opacity="0.24" stroke-width="1"/>`);
   }
 
-  // 7. grass, batched by colour and width
-  const bag = new Map();
-  const dots = new Map();
-  const over = new Map();
+  // 7. grass, a row at a time and a layer at a time, batched by colour: a
+  //    hedge overlaps the row above it, so the rows have to stay in order
+  const rowOps = Array.from({ length: rows }, () => []);
   for (let i = 0; i < lawn.cells.length; i++) {
     const c = lawn.cells[i];
-    if (c.void || !c.level) continue;
-    tuft(bag, dots, over, tileX(c.col), tileY(c.row), c, mowedX[i], seasonOf(c.col), theme, o, 1);
+    if (c.void || !c.level || mowedX[i]) continue;
+    rowOps[c.row].push(
+      cellOps(c, tileX(c.col), tileY(c.row), false, seasonOf(c.col), theme, o, 1),
+    );
   }
-  parts.push(strokes('grass', bag));
+  const grass = rowOps.map(opsToPaths).join('');
+  parts.push(`<g id="grass" stroke-linecap="round" stroke-linejoin="round">${grass}</g>`);
 
-  // 8. dressing: pebbles on bare dirt, snowflakes, leaves, dandelion heads,
-  //    then the ink that sits on top of them (disc outlines, seed-head ticks)
-  parts.push(`<g id="dressing">${dressing(lawn, theme, o, dots, seasonOf)}</g>`);
-  if (over.size) parts.push(strokes('ink', over));
+  // 8. dressing: pebbles on bare dirt, snowflakes and fallen leaves
+  parts.push(`<g id="dressing">${dressing(lawn, theme, o, seasonOf)}</g>`);
 
   // 8b. the overgrown lawn the animated mower cuts away, cell by cell
   const timing = route ? loopTiming(route.length) : null;
@@ -589,7 +539,7 @@ function frostCap(cell, x, y, season, mowed) {
 }
 
 /** Pebbles on bare dirt + the seasonal dressing render2d scatters on level 0. */
-function dressing(lawn, theme, o, dots, seasonOf) {
+function dressing(lawn, theme, o, seasonOf) {
   const out = [];
   const pebbles = [];
   const flakes = [];
@@ -624,7 +574,6 @@ function dressing(lawn, theme, o, dots, seasonOf) {
     out.push(`<path d="${flakes.join('')}" fill="none" stroke="#85B7EB" stroke-width="1"/>`);
   }
   if (leaves.length) out.push(`<g fill="${ORANGE}">${leaves.join('')}</g>`);
-  out.push(batched(dots, (col) => `fill="${col}"`));
   return out.join('');
 }
 
@@ -659,14 +608,10 @@ function coverGroup(lawn, theme, o, route, timing, seasonOf) {
     const season = seasonOf(c.col);
     const x = tileX(c.col);
     const y = tileY(c.row);
-    const bag = new Map();
-    const dots = new Map();
-    const over = new Map();
     const grown = {
       col: c.col, row: c.row, level: c.level, void: false,
       vigor: c.vigor || 0, heroic: c.heroic,
     };
-    tuft(bag, dots, over, x, y, grown, false, season, theme, o, 1);
     // planRoute guarantees a cut for every mowable cell, and the route always
     // starts off the board, so t is never 0. keyTimes still has to be strictly
     // increasing and end at exactly 1, so the snap that follows t must not
@@ -676,16 +621,15 @@ function coverGroup(lawn, theme, o, route, timing, seasonOf) {
     groups.push('<g>'
       + tileRect(c, x, y, season, theme, false)
       + frostCap(c, x, y, season, false)
-      + batched(bag, strokeAttrs)
-      + batched(dots, (col) => `fill="${col}"`)
-      + (over.size ? batched(over, strokeAttrs) : '')
+      + opsToPaths([cellOps(grown, x, y, false, season, theme, o, 1)])
       + `<animate attributeName="opacity" values="1;1;0;0"`
       + ` keyTimes="0;${t.toFixed(4)};${t2.toFixed(4)};1"`
       + ` dur="${n2(timing.dur)}s" repeatCount="indefinite"/></g>`);
   }
-  // one cover per cell means the stroke defaults cannot batch by colour, but
-  // they can at least be said once for the whole layer instead of per cell
-  return `<g id="cover" fill="none" stroke-linecap="round">${groups.join('')}</g>`;
+  // one cover per cell means the ink cannot batch across cells, but the stroke
+  // defaults can at least be said once for the whole layer instead of per cell
+  return `<g id="cover" stroke-linecap="round" stroke-linejoin="round">`
+    + `${groups.join('')}</g>`;
 }
 
 /**
@@ -730,31 +674,28 @@ function legend(lawn, theme, o) {
   const y = OY + lawn.rows * PITCH + GEOM.LEGEND_DY;
   const right = OX + lawn.cols * PITCH - GAP;
   const midY = y + CELL / 2 + 1 + GEOM.LEGEND_SIZE * 0.35;
-  const swatches = 5 * PITCH - GAP;
+  // the swatches sit on their own, wider pitch: a bush and a hedge spill
+  const swatches = 4 * GEOM.LEGEND_PITCH + CELL;
   const x0 = right - GEOM.LEGEND_MORE_W - GEOM.LEGEND_GAP - swatches;
 
-  const bag = new Map();
-  const dots = new Map();
-  const over = new Map();
+  const shapes = [];
   const tiles = [];
   // the key follows the same rule as the board: summer green, or no season
   const season = o.weather ? 2 : NO_SEASON;
   for (let l = 0; l <= 4; l++) {
-    const x = x0 + l * PITCH;
+    const x = x0 + l * GEOM.LEGEND_PITCH;
     // level 0 shows mowed, so the key opens on the bare tile the graph uses
     const fake = { col: l, row: 0, level: l, void: false, vigor: 0.5, heroic: false };
     tiles.push(tileRect(fake, x, y, season, theme, l === 0));
-    tuft(bag, dots, over, x, y, fake, l === 0, season, theme, o, GEOM.LEGEND_SCALE);
+    shapes.push(cellOps(fake, x, y, l === 0, season, theme, o, GEOM.LEGEND_SCALE));
   }
   const text = (x, anchor, str) =>
     `<text x="${n2(x)}" y="${n2(midY)}" text-anchor="${anchor}"`
     + ` font-size="${GEOM.LEGEND_SIZE}" fill="${theme.pencil}">${str}</text>`;
-  return `<g id="legend">`
+  return `<g id="legend" stroke-linecap="round" stroke-linejoin="round">`
     + text(x0 - GEOM.LEGEND_GAP, 'end', 'less')
     + tiles.join('')
-    + strokes('', bag)
-    + batched(dots, (col) => `fill="${col}"`)
-    + strokes('', over)
+    + opsToPaths(shapes)
     + text(right, 'end', 'more')
     + `</g>`;
 }
