@@ -77,13 +77,16 @@ h1 svg { display: block; }
 /* the combo: the one field that is not always there, so it gets the loud
    colour (--error is the only red dark enough to read on the cream) and a
    jump every time it climbs */
-#combofield b { color: var(--error); display: inline-block; }
+#combofield b { color: var(--error); display: inline-block; margin-left: 2px; }
 #combo.pulse { animation: combopop .34s ease-out; }
 @keyframes combopop {
   0% { transform: scale(1) rotate(0deg); }
-  35% { transform: scale(1.5) rotate(-6deg); }
+  35% { transform: scale(1.35) rotate(-6deg); }
   100% { transform: scale(1) rotate(0deg); }
 }
+/* the emoji is the label, so it needs neither the button's word-spacing nor
+   its wide sides */
+#sound { padding: 3px 9px 5px; line-height: 1.15; }
 
 .bar {
   display: inline-block; width: clamp(70px, 10vw, 150px); height: 10px;
@@ -277,6 +280,16 @@ button[aria-pressed="true"] { background: var(--grass); }
 .strip li { margin-bottom: 10px; }
 .strip code { color: var(--ink); }
 .strip a { color: var(--green); }
+/* "how it works": three lines, each with its own little inked doodle */
+.how { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+.how li { display: flex; gap: 14px; align-items: flex-start; margin: 0; }
+.how .doodle { flex: 0 0 auto; width: 56px; height: 44px; }
+.how p { margin: 0; max-width: 78ch; }
+.how b { font-weight: 400; color: var(--ink); }
+
+footer.strip { margin-top: 30px; font-size: 16px; }
+footer.strip p { margin: 0; }
+
 #preview {
   display: block; width: 100%; border: 2px solid var(--ink);
   border-radius: 12px; background: var(--paper);

@@ -112,11 +112,50 @@
     <p>that was a made-up developer. <button id="tryme">mow your own graph</button></p>
   </section>
 
+  <!-- Three lines, three doodles. The SVGs are inline and hand-shaped on a
+       56x44 grid so they sit in the same ink as everything else; they say
+       nothing a screen reader needs, hence aria-hidden. -->
   <section id="how" class="strip">
     <h2>how it works</h2>
-    <p>every day on your graph is a patch of grass. more commits, taller grass. drive over a
-      day and the real tile pops out with the count. mow all 52 weeks and you get a time to
-      brag about.</p>
+    <ul class="how">
+      <li>
+        <svg class="doodle" viewBox="0 0 56 44" fill="none" aria-hidden="true">
+          <path d="M5 36h46" stroke="#2C2C2A" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M28 36c-1-7 1-12 1-16" stroke="#216E39" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M29 26c4-1 7-4 7-8-4 0-7 3-7 8z" fill="#40C463" stroke="#2C2C2A" stroke-width="1.6" stroke-linejoin="round"/>
+          <path d="M28 29c-4-1-7-4-7-8 4 0 7 3 7 8z" fill="#40C463" stroke="#2C2C2A" stroke-width="1.6" stroke-linejoin="round"/>
+          <path d="M14 36c0-5 2-8 4-10" stroke="#216E39" stroke-width="2" stroke-linecap="round"/>
+          <path d="M44 36c0-6-2-9-4-11" stroke="#216E39" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="9" cy="39" r="1.6" fill="#2C2C2A" opacity=".45"/>
+        </svg>
+        <p><b>every day is a patch of grass.</b> a quiet day sprouts; a heavy one grows a
+          hedge you can pick out from across the room. the best 3% get a dandelion.</p>
+      </li>
+      <li>
+        <svg class="doodle" viewBox="0 0 56 44" fill="none" aria-hidden="true">
+          <path d="M4 36h48" stroke="#2C2C2A" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M8 28h22v-8H8z" fill="#D85A30" stroke="#2C2C2A" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M30 20h7v8h-7z" fill="#D85A30" stroke="#2C2C2A" stroke-width="2" stroke-linejoin="round"/>
+          <circle cx="13" cy="31" r="4.4" fill="#2C2C2A"/>
+          <circle cx="32" cy="31" r="2.8" fill="#2C2C2A"/>
+          <circle cx="17" cy="15" r="3.2" fill="#F5C4B3" stroke="#2C2C2A" stroke-width="1.6"/>
+          <path d="M42 35c0-6 4-9 9-10" stroke="#216E39" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M46 35c0-4 2-6 5-7" stroke="#216E39" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <p><b>drive over a day</b> and the real GitHub tile pops out with the count. keep the
+          blade busy and the combo climbs. mow all 52 weeks for a time to brag about.</p>
+      </li>
+      <li>
+        <svg class="doodle" viewBox="0 0 56 44" fill="none" aria-hidden="true">
+          <path d="M9 6h38v32H9z" fill="#FBF4DD" stroke="#2C2C2A" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M14 13h16M14 18h22" stroke="#2C2C2A" stroke-width="2" stroke-linecap="round"/>
+          <path d="M14 24h28v8H14z" fill="#C6E48B" stroke="#2C2C2A" stroke-width="1.8" stroke-linejoin="round"/>
+          <path d="M18 32v-5M23 32v-6M28 32v-4M33 32v-6M38 32v-5" stroke="#216E39" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+        <p><b>a nightly Action</b> draws the same lawn into your profile README, light and
+          dark, from the same code this page runs. no token, no server, nothing to host.</p>
+      </li>
+    </ul>
   </section>
 
   <!-- Three steps, one button each. The buttons are armed by app/readme.js
@@ -169,8 +208,10 @@
   </section>
 
   <footer class="strip">
-    <p>a weekend toy. <a href="https://github.com/evch1204/mow-your-commits">star it on github</a>
-      &middot; <a href="https://github.com/evch1204/mow-your-commits/issues">something broke?</a>
+    <p>a weekend toy, MIT, no backend anywhere.
+      <a href="https://github.com/evch1204/mow-your-commits" target="_blank" rel="noopener">
+        &#9733; star it on github</a>
+      &middot; <a href="https://github.com/evch1204/mow-your-commits/issues" target="_blank" rel="noopener">something broke?</a>
       &middot; patrick hand by patrick wagesreiter, OFL</p>
   </footer>
 
