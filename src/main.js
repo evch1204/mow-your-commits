@@ -1,3 +1,4 @@
+import './style.css';
 import {
   createLawn, resetLawn, placeMower, tick, progress, monthAt, seasonIndexAt,
   describeCell, formatTime, tempAt, periodLabel, assignLevels, isoDay,
