@@ -213,7 +213,9 @@ export function grassOps(cell, x, y, season, opts = {}) {
       const f = n === 1 ? 0.5 : i / (n - 1);
       const sx = cx - halfW * 0.66 + f * halfW * 1.32 + (rnd() - 0.5) * 1.6;
       const y0 = base - h * 0.08;
-      const y1 = base - h * (g.kind === 'hedge' ? 0.58 + rnd() * 0.3 : 0.5 + rnd() * 0.34);
+      // stop short of the outline: a bush dips to 0.56 of its peak between the
+      // lobes, and a stroke that overshot there poked out through the top
+      const y1 = base - h * (g.kind === 'hedge' ? 0.52 + rnd() * 0.32 : 0.28 + rnd() * 0.24);
       const lean = bias * 0.5 + (rnd() - 0.5) * 3.4;
       const seg = [
         ['M', w(sx, 0.5), y0],
