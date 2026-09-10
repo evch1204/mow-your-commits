@@ -97,8 +97,16 @@ function toggleCamera() { setCamera(deep.toggleCamera()); }
  * six years overhang by a row and that reads as deliberate, so leave a little
  * slack rather than making the short list scroll for nothing.
  * On a phone the years are a scrolling row instead, so leave that alone.
+ *
+ * The slack is a whole row taller than that overhang (a 31px button plus the
+ * 5px gap) for a reason: "last year" is 52 columns and a calendar year is 53,
+ * so the board is a few pixels shorter for a real year than for the rolling
+ * window. At 60 the demo's seven entries sat right on the line, and clicking
+ * 2025 tipped them over it - the list capped and grew a scrollbar, then lost
+ * it again on the way back to "last year". A short list must not cap at any
+ * board width; the cap is for the sixteen-year accounts it was written for.
  */
-const OVERHANG = 60;
+const OVERHANG = 100;
 function fitYears() {
   const stacked = typeof window.matchMedia === 'function'
     && window.matchMedia('(max-width: 820px)').matches;
