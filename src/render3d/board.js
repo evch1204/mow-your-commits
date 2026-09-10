@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { ROWS } from '../core/lawn.js';
 import { FONT } from '../core/effects.js';
 import { DIRT, MEADOW_BY_SEASON } from '../core/palette.js';
-import { cardQuad, billboardAttributes } from './materials.js';
+import { Materials, cardQuad, billboardAttributes } from './materials.js';
 import {
   HILLS, MEADOW_CARDS, TREE_SHAPES, FENCE_TREES, MEADOW_TREES, BIRD_N,
 } from './theme.js';
@@ -83,6 +83,11 @@ export function disposeBoard(r) {
     for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
       if (!m || m === r.mats.ink) continue;
       if (m.map && !keep.has(m.map)) m.map.dispose();
+      // a sign is the only texture drawn per board, and it hangs off a
+      // uniform on the card materials rather than off .map
+      const tA = m.uniforms && m.uniforms.tA && m.uniforms.tA.value;
+      if (tA && !keep.has(tA)) tA.dispose();
+      Materials.forget(m);
       m.dispose();
     }
   });

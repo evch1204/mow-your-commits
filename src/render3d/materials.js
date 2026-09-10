@@ -138,7 +138,7 @@ export class Materials {
         '#include <begin_vertex>',
         '#include <begin_vertex>\n' + (opts.sway ? SWAY : '') + BOIL(boil),
       );
-      this.shaders.push(s);
+      this.shaders.push({ s, mat });
     };
     return mat;
   }
@@ -196,11 +196,20 @@ export class Materials {
     return m;
   }
 
+  /**
+   * Mark a material dead, so `tick` stops writing uniforms into a shader whose
+   * mesh has been thrown away. A year switch rebuilds the whole board, and
+   * without this the two lists grew by a dozen entries per switch.
+   */
+  static forget(mat) { if (mat) mat.userData.gone = true; }
+
   /** One place that pushes the frame's boil seed and clock into every shader. */
   tick(seed, time) {
-    for (const s of this.shaders) {
-      s.uniforms.uSeed.value = seed;
-      s.uniforms.uTime.value = time;
+    this.shaders = this.shaders.filter((e) => !e.mat.userData.gone);
+    this.billboards = this.billboards.filter((m) => !m.userData.gone);
+    for (const e of this.shaders) {
+      e.s.uniforms.uSeed.value = seed;
+      e.s.uniforms.uTime.value = time;
     }
     for (const m of this.billboards) {
       m.uniforms.uSeed.value = seed;
