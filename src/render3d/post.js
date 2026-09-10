@@ -101,7 +101,7 @@ export class SketchPass {
       magFilter: THREE.LinearFilter,
       type: THREE.HalfFloatType,
       depthBuffer: true,
-      samples: 4,
+      samples: SKETCH.samples,
     });
     this.target.depthTexture = new THREE.DepthTexture(2, 2);
     this.target.depthTexture.type = THREE.UnsignedIntType;
@@ -134,8 +134,15 @@ export class SketchPass {
   }
 
   setSize(w, h, pixelRatio) {
-    const pw = Math.max(2, Math.floor(w * pixelRatio));
-    const ph = Math.max(2, Math.floor(h * pixelRatio));
+    const phone = w < SKETCH.phoneUnder;
+    const ratio = Math.min(pixelRatio, phone ? SKETCH.phoneRatio : SKETCH.ratio);
+    const samples = phone ? SKETCH.phoneSamples : SKETCH.samples;
+    if (this.target.samples !== samples) {
+      this.target.samples = samples;
+      this.target.dispose();       // the framebuffer has to be rebuilt for it
+    }
+    const pw = Math.max(2, Math.floor(w * ratio));
+    const ph = Math.max(2, Math.floor(h * ratio));
     this.target.setSize(pw, ph);
     this.material.uniforms.uTexel.value.set(1 / pw, 1 / ph);
     this.material.uniforms.uRes.value.set(pw, ph);

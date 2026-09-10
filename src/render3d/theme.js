@@ -113,4 +113,16 @@ export const SKETCH = {
   grain: 0.12,        // paper noise, multiplied
   vignette: 0.18,
   boil: 1.6,          // pixels the edge sample wanders when the seed changes
+  /**
+   * The pass renders the whole scene into its own buffer, so its resolution
+   * is the scene's resolution and the frame cost is quadratic in it. A 3x
+   * phone screen would be paying four times a desktop's fill rate for a
+   * drawing that is deliberately soft, so cap the ratio, and drop the
+   * multisampling with it: the ink pass draws the edges either way.
+   */
+  ratio: 2,
+  phoneRatio: 1.5,
+  phoneUnder: 900,    // css px of canvas width that counts as a phone
+  samples: 4,
+  phoneSamples: 0,
 };
