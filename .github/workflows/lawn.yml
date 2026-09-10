@@ -1,8 +1,15 @@
 # Mows the repository owner's graph every night and pushes the pictures to the
 # `output` branch, where a README can point an <img> at them.
 #
-# Copy this into your own profile repo as .github/workflows/lawn.yml and change
-# the first `uses:` to:   uses: evch1204/mow-your-commits@v1
+# You do not have to copy this by hand. On the site
+# (https://evch1204.github.io/mow-your-commits/), type your username and press
+# "add the workflow to GitHub": that opens GitHub's own new-file editor on your
+# profile repo with the right version of this file already filled in, and you
+# press GitHub's commit button. "run it once" and "open your README" are the
+# other two steps.
+#
+# By hand: copy this into your own profile repo as .github/workflows/lawn.yml
+# and change the first `uses:` to:   uses: evch1204/mow-your-commits@v1
 # (then you do not need the checkout step either).
 name: mow the lawn
 
