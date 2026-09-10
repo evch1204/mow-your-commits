@@ -35,7 +35,7 @@ export const VIGOR_HI = 1.15;
  * apart in a 3D frame where lighting flattens them: a hedge is the darkest
  * thing on the board.
  */
-export const LEVEL_SHADE = [1, 1.22, 1.06, 0.9, 0.74];
+export const LEVEL_SHADE = [1, 1.22, 1.06, 0.94, 0.84];
 
 /**
  * And a squeeze of the level's own green toward a fresh yellow-green (level 1)
@@ -43,7 +43,7 @@ export const LEVEL_SHADE = [1, 1.22, 1.06, 0.9, 0.74];
  * colours and not two brightnesses of one.
  */
 export const LEVEL_PUSH = [
-  null, ['#C8E58A', 0.34], ['#8FD07A', 0.16], ['#2E7D46', 0.18], ['#14512A', 0.34],
+  null, ['#C8E58A', 0.34], ['#8FD07A', 0.16], ['#31964F', 0.2], ['#216E39', 0.5],
 ];
 
 /** A hedge stands off its tile on a soft blob shadow. */
@@ -89,6 +89,8 @@ export const PUFF_POOL = 90;
 
 /** Leaves in autumn, blossom in spring. */
 export const LEAF_N = 44;
+/** The shared quad is a 0.34 leaf; a petal wants to be about 0.12 across. */
+export const PETAL_SCALE = 0.35;
 
 /** Sky props: 5 birds drift across in spring and summer. */
 export const BIRD_N = 5;

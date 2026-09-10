@@ -93,6 +93,31 @@ function lobes(c, cx, base, w, h, n, rnd, wall = 0.55) {
   c.closePath();
 }
 
+/**
+ * The outline of the union of some circles, walked left to right along the top
+ * and closed along `base`: at each x the silhouette is the highest of the
+ * circles that reach it. A hand-drawn bush, in other words, with one contour.
+ */
+function unionOutline(c, circles, base, rnd) {
+  const left = Math.min(...circles.map(([x, , r]) => x - r));
+  const right = Math.max(...circles.map(([x, , r]) => x + r));
+  const pts = [[left, base]];
+  const steps = 26;
+  for (let i = 0; i <= steps; i++) {
+    const x = left + (i / steps) * (right - left);
+    let y = base;
+    for (const [cx, cy, r] of circles) {
+      const dx = x - cx;
+      if (Math.abs(dx) >= r) continue;
+      y = Math.min(y, cy - Math.sqrt(r * r - dx * dx));
+    }
+    pts.push([x, y]);
+  }
+  pts.push([right, base]);
+  wobble(c, pts, (right - left) * 0.012, rnd);
+  c.closePath();
+}
+
 /** The tuft card for one grass level: sprouts, tuft, bush or hedge. */
 export function tuftCard(level) {
   return cached('tuft' + level, () => {
@@ -143,44 +168,94 @@ export function tuftCard(level) {
         return;
       }
 
-      // bush and hedge: a filled silhouette, inner strokes, and (hedge) seeds
-      const n = level === 3 ? 3 : 5;
-      const bodyH = level === 3 ? H * 0.9 : H * 0.78;
+      if (level === 3) {
+        // A bush is three round lobes. Stroking three whole circles drew every
+        // arc that falls *inside* the union too, and three of those cards
+        // crossed at sixty degrees came out as a bunch of balloons; this walks
+        // the union's own outline instead, so the ink is the silhouette and
+        // nothing else, and only two short seams say where the lobes meet.
+        const bodyH = H * 0.88;
+        const cy = base - bodyH * 0.46;
+        const lobeSet = [
+          [W * 0.29, cy + bodyH * 0.17, bodyH * 0.35],
+          [W * 0.52, cy - bodyH * 0.15, bodyH * 0.41],
+          [W * 0.75, cy + bodyH * 0.15, bodyH * 0.33],
+        ];
+        c.fillStyle = '#FFFFFF';
+        c.strokeStyle = INK;
+        c.lineWidth = 4.8;
+        unionOutline(c, lobeSet, base, rnd);
+        c.fill();
+        c.stroke();
+
+        // where two lobes meet, one short seam each: enough to read as three
+        c.strokeStyle = 'rgba(30,34,26,0.34)';
+        c.lineWidth = 4.2;
+        for (const t of [0.405, 0.635]) {
+          const x = W * t;
+          wobble(c, [[x, cy + bodyH * 0.34], [x + (rnd() - 0.5) * 8, cy], [x, cy - bodyH * 0.2]],
+            6, rnd);
+          c.stroke();
+        }
+        // and three darker strokes up the body
+        for (let i = 0; i < 3; i++) {
+          const x = W * (0.3 + i * 0.2) + (rnd() - 0.5) * 6;
+          wobble(c, [[x, base - 10], [x + (rnd() - 0.5) * 12, cy + bodyH * 0.2],
+            [x, cy - bodyH * 0.05]], 7, rnd);
+          c.stroke();
+        }
+        return;
+      }
+
+      // a hedge is a wall: straight sides, a squared lumpy top, inner strokes
+      // down the face, and seed heads on wire stems over the top of it
+      const bodyH = H * 0.80;
+      const top = base - bodyH;
+      const left = W * 0.06;
+      const right = W * 0.94;
+      // a hair narrower at the top than at the foot: three of these crossed at
+      // sixty degrees means one quad is always near edge-on, and dead-parallel
+      // sides made its outline read as a fold down the middle of the body
+      const taper = W * 0.05;
+      const crest = [];
+      for (let i = 0; i <= 7; i++) {
+        const t = i / 7;
+        crest.push([
+          left + taper + t * (right - left - taper * 2),
+          top + Math.sin(t * Math.PI * 3.2) * H * 0.035,
+        ]);
+      }
       c.fillStyle = '#FFFFFF';
-      lobes(c, W / 2, base, W * 0.94, bodyH, n, rnd, level === 3 ? 0.55 : 0.12);
+      c.strokeStyle = INK;
+      c.lineWidth = 4.6;
+      wobble(c, [[left, base], ...crest, [right, base]], W * 0.016, rnd);
+      c.closePath();
       c.fill();
-      c.lineWidth = level === 3 ? 5.2 : 5.8;
       c.stroke();
 
-      // the inner strokes are semi-transparent black: white * tint is the
-      // grass green, grey * tint is a darker version of the same green
-      c.strokeStyle = 'rgba(30,34,26,0.34)';
-      c.lineWidth = level === 3 ? 4.2 : 4.6;
-      const strokes = level === 3 ? 5 : 8;
-      for (let i = 0; i < strokes; i++) {
-        const x = W * (0.16 + (i / (strokes - 1)) * 0.68) + (rnd() - 0.5) * 8;
-        const top = base - bodyH * (0.28 + rnd() * 0.45);
-        wobble(c, [[x, base - 6], [x + (rnd() - 0.5) * 12, (base + top) / 2], [x, top]], 7, rnd);
+      c.strokeStyle = 'rgba(30,34,26,0.3)';
+      c.lineWidth = 4.4;
+      for (let i = 0; i < 7; i++) {
+        const x = left + ((i + 0.5) / 7) * (right - left) + (rnd() - 0.5) * 6;
+        const hi = top + H * (0.06 + rnd() * 0.22);
+        wobble(c, [[x, base - 8], [x + (rnd() - 0.5) * 10, (base + hi) / 2], [x, hi]], 6, rnd);
         c.stroke();
       }
 
-      if (level === 4) {
-        // two or three seed heads on wire stems, over the top of the hedge
-        c.strokeStyle = 'rgba(44,44,42,0.82)';
-        c.lineWidth = 3.2;
-        c.fillStyle = '#FFFFFF';
-        for (let i = 0; i < 3; i++) {
-          const x = W * (0.26 + i * 0.24);
-          const top = base - H * (0.94 + rnd() * 0.05);
-          c.beginPath();
-          c.moveTo(x, base - bodyH * 0.8);
-          c.quadraticCurveTo(x + (rnd() - 0.5) * 16, (base - bodyH + top) / 2, x, top);
-          c.stroke();
-          c.beginPath();
-          c.ellipse(x, top + 6, 7.5, 14, (rnd() - 0.5) * 0.5, 0, 7);
-          c.fill();
-          c.stroke();
-        }
+      c.strokeStyle = 'rgba(44,44,42,0.8)';
+      c.lineWidth = 3.2;
+      c.fillStyle = '#FFFFFF';
+      for (let i = 0; i < 3; i++) {
+        const x = W * (0.26 + i * 0.24);
+        const tip = base - H * (0.95 + rnd() * 0.04);
+        c.beginPath();
+        c.moveTo(x, top + H * 0.03);
+        c.quadraticCurveTo(x + (rnd() - 0.5) * 16, (top + tip) / 2, x, tip);
+        c.stroke();
+        c.beginPath();
+        c.ellipse(x, tip + 6, 7, 13, (rnd() - 0.5) * 0.5, 0, 7);
+        c.fill();
+        c.stroke();
       }
     });
   });
@@ -701,6 +776,29 @@ export function fluffTexture() {
     c.fillRect(0, 0, 32, 32);
     c.strokeStyle = 'rgba(44,44,42,0.6)'; c.lineWidth = 1;
     c.beginPath(); c.moveTo(16, 22); c.lineTo(16, 29); c.stroke();
+  }));
+}
+
+/**
+ * A blossom petal: a soft pink oval with a hair of an edge, and nothing square
+ * about it. The leaf texture stood in for this and read as a pale paper scrap
+ * with an ink box round it once it was up in the sky.
+ */
+export function petalTexture() {
+  return cached('petal', () => canvasTexture(48, 40, (c) => {
+    const g = c.createRadialGradient(24, 20, 1, 24, 20, 19);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.55, 'rgba(255,255,255,0.98)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = g;
+    c.beginPath();
+    c.ellipse(24, 20, 20, 16, 0, 0, 7);
+    c.fill();
+    c.strokeStyle = 'rgba(120,86,96,0.4)';
+    c.lineWidth = 2;
+    c.beginPath();
+    c.ellipse(24, 20, 16, 12.5, 0, 0, 7);
+    c.stroke();
   }));
 }
 

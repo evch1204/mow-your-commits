@@ -6,9 +6,12 @@ import * as THREE from 'three';
 import { seasonIndexAt } from '../core/lawn.js';
 import { PETAL, SKY_TOP, SKY_HORIZON, MEADOW_BY_SEASON, SUN_LIGHT } from '../core/palette.js';
 import {
-  HEMI, DIR_INTENSITY, AUTUMN_TRIO, LEAF_N, FOG_NEAR, FOG_FAR, SKY_DIST, SKY_RISE,
+  HEMI, DIR_INTENSITY, AUTUMN_TRIO, LEAF_N, PETAL_SCALE, FOG_NEAR, FOG_FAR,
+  SKY_DIST, SKY_RISE,
 } from './theme.js';
-import { flakeTexture, fluffTexture, leafTexture, sunTexture, cloudTexture } from './doodle.js';
+import {
+  flakeTexture, fluffTexture, leafTexture, petalTexture, sunTexture, cloudTexture,
+} from './doodle.js';
 import { stepProps } from './board.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -215,7 +218,9 @@ function stepSnow(r, wm, tx, tz) {
       || Math.abs(pos[s * 3] - tx) > 16 || Math.abs(pos[s * 3 + 2] - tz) > 15;
     if (gone) {
       pos[s * 3] = tx + (Math.random() - 0.5) * 28;
-      pos[s * 3 + 1] = 6 + Math.random() * 5;
+      // under the near hill's ridge: snow falling past the sun looked like
+      // weather happening somewhere else
+      pos[s * 3 + 1] = 4.5 + Math.random() * 3.5;
       pos[s * 3 + 2] = tz + (Math.random() - 0.5) * 24;
     }
   }
@@ -231,25 +236,32 @@ function stepLeaves(r, wm, tx, tz) {
   if (!r.leaves.visible) return;
   if (r.leafSpring !== spring) {       // only at the season border
     r.leafSpring = spring;
+    // blossom is a small round petal, autumn a leaf: one pool, two faces
+    r.leafMat.map = spring ? petalTexture() : leafTexture();
+    r.leafMat.needsUpdate = true;
     for (let i = 0; i < LEAF_N; i++) {
       r.leaves.setColorAt(i, r.tmpColor.set(spring ? PETAL[i % 2] : AUTUMN_TRIO[i % 3]));
     }
     r.leaves.instanceColor.needsUpdate = true;
   }
   const d = r.dummy;
+  // the quad is a leaf; a petal is a third of it, and both stay under the
+  // treeline rather than drifting across the sky above the sun
+  const size = spring ? PETAL_SCALE : 1;
+  const ceil = spring ? 4 : 7;
   for (let i = 0; i < LEAF_N; i++) {
     const lf = r.leafState[i];
     lf.y -= lf.v * (spring ? 0.6 : 1);
     lf.x += Math.sin(r.time * 1.7 + i) * 0.012;
     lf.rx += 0.03; lf.rz += 0.02;
-    if (lf.y < 0.1 || Math.abs(lf.x - tx) > 15 || Math.abs(lf.z - tz) > 14) {
+    if (lf.y < 0.1 || lf.y > ceil || Math.abs(lf.x - tx) > 15 || Math.abs(lf.z - tz) > 14) {
       lf.x = tx + (Math.random() - 0.5) * 26;
-      lf.y = 5 + Math.random() * 4;
+      lf.y = ceil * (0.45 + Math.random() * 0.55);
       lf.z = tz + (Math.random() - 0.5) * 22;
     }
     d.position.set(lf.x, lf.y, lf.z);
     d.rotation.set(lf.rx, 0, lf.rz);
-    d.scale.setScalar(1);
+    d.scale.setScalar(size);
     d.updateMatrix();
     r.leaves.setMatrixAt(i, d.matrix);
   }
@@ -265,7 +277,7 @@ function stepFluff(r, wm, tx, tz) {
   for (let s = 0; s < fp.length / 3; s++) {
     fp[s * 3 + 1] += 0.012;
     fp[s * 3] += Math.sin(r.time * 0.9 + s) * 0.008;
-    const gone = fp[s * 3 + 1] > 7
+    const gone = fp[s * 3 + 1] > 5.5
       || Math.abs(fp[s * 3] - tx) > 16 || Math.abs(fp[s * 3 + 2] - tz) > 15;
     if (gone) {
       fp[s * 3] = tx + (Math.random() - 0.5) * 28;

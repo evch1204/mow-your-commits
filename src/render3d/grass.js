@@ -27,36 +27,46 @@ const ease = (t) => t * t * (3 - 2 * t);
  */
 const TY_MID = [1, 1, 1, 1, 1].map((_, l) => grassFor(l, 0.5).tuftY || 1);
 
-/** A card on its feet: two quads crossed in an X, y running 0..1. */
-function crossCard() {
-  const a = new THREE.PlaneGeometry(1, 1);
-  a.translate(0, 0.5, 0);
-  const b = a.clone();
-  b.rotateY(Math.PI / 2);
-  const geo = mergeTwo(a, b);
-  // flat up-facing normals, so cel shading does not shade the two quads apart
-  const n = geo.attributes.normal.array;
-  for (let i = 0; i < n.length; i += 3) { n[i] = 0; n[i + 1] = 1; n[i + 2] = 0; }
+/**
+ * A card on its feet: `n` quads standing in the same spot, evenly turned about
+ * y, with the texture on each. Two of them (an X) is enough for a sprout or a
+ * tuft, which are open shapes anyway. A bush and a hedge are bodies, and two
+ * quads gave them a visible seam and a tent-like silhouette from anywhere off
+ * the diagonals; three at sixty degrees close the shape from every angle.
+ */
+function crossCard(n) {
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const q = new THREE.PlaneGeometry(1, 1);
+    q.translate(0, 0.5, 0);
+    q.rotateY((i * Math.PI) / n);
+    parts.push(q);
+  }
+  const geo = mergeParts(parts);
+  // flat up-facing normals, so cel shading does not shade the quads apart
+  const nrm = geo.attributes.normal.array;
+  for (let i = 0; i < nrm.length; i += 3) { nrm[i] = 0; nrm[i + 1] = 1; nrm[i + 2] = 0; }
   return geo;
 }
 
-/** Two small indexed geometries into one, without pulling in BufferGeometryUtils. */
-function mergeTwo(a, b) {
+/** A handful of small indexed geometries into one, without BufferGeometryUtils. */
+function mergeParts(parts) {
   const g = new THREE.BufferGeometry();
   for (const name of ['position', 'normal', 'uv']) {
-    const x = a.attributes[name], y = b.attributes[name];
-    const out = new Float32Array(x.array.length + y.array.length);
-    out.set(x.array, 0);
-    out.set(y.array, x.array.length);
-    g.setAttribute(name, new THREE.BufferAttribute(out, x.itemSize));
+    const size = parts.reduce((t, p) => t + p.attributes[name].array.length, 0);
+    const out = new Float32Array(size);
+    let at = 0;
+    for (const p of parts) { out.set(p.attributes[name].array, at); at += p.attributes[name].array.length; }
+    g.setAttribute(name, new THREE.BufferAttribute(out, parts[0].attributes[name].itemSize));
   }
-  const ai = a.index.array, bi = b.index.array;
-  const off = a.attributes.position.count;
   const idx = [];
-  for (const i of ai) idx.push(i);
-  for (const i of bi) idx.push(i + off);
+  let off = 0;
+  for (const p of parts) {
+    for (const i of p.index.array) idx.push(i + off);
+    off += p.attributes.position.count;
+  }
   g.setIndex(idx);
-  a.dispose(); b.dispose();
+  for (const p of parts) p.dispose();
   return g;
 }
 
@@ -74,14 +84,15 @@ export function buildTiles(r) {
 }
 
 export function buildGrass(r) {
-  const cardGeo = crossCard();
+  const cross2 = crossCard(2);      // sprouts and tuft: open shapes
+  const cross3 = crossCard(3);      // bush and hedge: bodies
   r.grass = [];
   for (let l = 1; l <= 4; l++) {
     const mat = r.mats.wobbly(new THREE.MeshToonMaterial({
       gradientMap: r.mats.grad, map: tuftCard(l),
       side: THREE.DoubleSide, alphaTest: 0.5,
     }), { sway: true, boil: 0.012 });
-    const im = new THREE.InstancedMesh(cardGeo, mat, SLOTS);
+    const im = new THREE.InstancedMesh(l >= 3 ? cross3 : cross2, mat, SLOTS);
     im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     im.count = 0;
     im.frustumCulled = false;
@@ -95,7 +106,7 @@ export function buildGrass(r) {
     gradientMap: r.mats.grad, map: stubbleCard(),
     side: THREE.DoubleSide, alphaTest: 0.5,
   }), { sway: true, boil: 0.01 });
-  r.stubble = new THREE.InstancedMesh(cardGeo, stubMat, SLOTS);
+  r.stubble = new THREE.InstancedMesh(cross2, stubMat, SLOTS);
   r.stubble.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   r.stubble.count = 0;
   r.stubble.frustumCulled = false;
