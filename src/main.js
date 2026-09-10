@@ -103,9 +103,14 @@ function fitYears() {
   const stacked = typeof window.matchMedia === 'function'
     && window.matchMedia('(max-width: 820px)').matches;
   const room = stage.clientHeight;
-  yearsEl.style.maxHeight = '';
-  if (stacked || active !== 'flat' || !room) return;
-  if (yearsEl.scrollHeight > room + OVERHANG) yearsEl.style.maxHeight = room + 'px';
+  // Measure through the cap rather than dropping it first: clearing max-height
+  // let the list tower for a frame, which reflowed the page and flashed the
+  // document's vertical scrollbar on every year click. scrollHeight already
+  // reports the full content height under an overflow clip, and the style is
+  // only touched when the answer actually changes.
+  const want = stacked || active !== 'flat' || !room
+    || yearsEl.scrollHeight <= room + OVERHANG ? '' : room + 'px';
+  if (yearsEl.style.maxHeight !== want) yearsEl.style.maxHeight = want;
 }
 
 // --- year picker ---------------------------------------------------------
@@ -176,7 +181,7 @@ function pickYear(y) {
   swapLawn(lawnFor(y));
   setYearParam();
   announceYear();
-  stage.focus();
+  stage.focus({ preventScroll: true });
 }
 
 // --- actions -------------------------------------------------------------
@@ -186,7 +191,7 @@ function regrow() {
   flat.reset();
   deep.reset();
   clearRunState();
-  stage.focus();
+  stage.focus({ preventScroll: true });
 }
 
 /** "my" for the demo, "torvalds'" for a loaded account. */

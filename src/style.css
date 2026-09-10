@@ -156,9 +156,16 @@ body[data-view="deep"] #stage { cursor: grab; }
 body[data-view="deep"][data-cam="overview"] #deep { height: clamp(280px, 34vw, 420px); }
 body[data-view="deep"][data-cam="overview"] #years { max-height: clamp(280px, 34vw, 420px); }
 
+/* Scrolls down the page, never sideways: the pressed year is rotated a degree
+   and its corners stick a pixel or two past the column, which was enough to
+   raise a horizontal scrollbar on every click. The padding gives the tilt that
+   room back, and a stable gutter keeps the labels still when the vertical bar
+   comes and goes. */
 #years {
   flex: 0 0 auto; display: flex; flex-direction: column; gap: 5px;
-  max-height: clamp(360px, 46vw, 560px); overflow: auto;
+  max-height: clamp(360px, 46vw, 560px);
+  overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
+  padding: 0 4px;   /* inline only: block padding would count against fitYears */
 }
 #years button {
   min-width: 96px; text-align: left; padding: 3px 12px 5px;
@@ -261,9 +268,12 @@ button[aria-pressed="true"] { background: var(--grass); }
   #flat { min-width: 680px; }
   #deep { height: 360px; }
   body[data-view="deep"][data-cam="overview"] #deep { height: 280px; }
+  /* the row scrolls sideways instead, so swap the axes back - and keep the
+     block padding, or the rotated pressed year is clipped top and bottom */
   #years {
     flex-direction: row; width: 100%; max-height: none;
-    overflow-x: auto; overflow-y: hidden; padding-bottom: 2px;
+    overflow-x: auto; overflow-y: hidden; scrollbar-gutter: auto;
+    padding: 3px 0 4px;
   }
   /* a real account brings 16+ years: let the row scroll, never squash a label */
   #years button {
