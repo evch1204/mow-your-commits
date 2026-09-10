@@ -39,6 +39,14 @@ export const MOW_RADIUS = 0.67;   // distance from blade center that counts
 export const BLADE_OFFSET = 0.55; // blade sits this far ahead of mower center
 const MOW_ANIM = 0.25;     // seconds for one cell's mow animation
 
+/**
+ * How long a run of cuts stays alive. Cut another cell inside this many
+ * seconds of the last one and the combo climbs; pause for longer and it drops
+ * back to 1. Tuned so an unbroken pass down a row keeps the run going and a
+ * wide turn at the end of the year does not.
+ */
+export const COMBO_WINDOW = 0.9;
+
 export const DEFAULT_SEED = 20260904;
 
 // --- shared randomness ----------------------------------------------------
@@ -236,6 +244,12 @@ export function createLawn(data, opts = {}) {
     mowedContributions: 0,
     lastMowed: -1,
     time: 0,
+    // A run of cuts landing on each other's heels. `lastCutAt` is in seconds
+    // of `time`, and starts before the clock so the first cut opens a run at
+    // x1. The renderers read `combo` for the +N popup; the HUD shows it from 3.
+    combo: 0,
+    bestCombo: 0,
+    lastCutAt: -1,
     started: false,
     finished: mowable === 0,
     monthOfCol,
@@ -250,6 +264,9 @@ export function resetLawn(lawn) {
   lawn.mowedContributions = 0;
   lawn.lastMowed = -1;
   lawn.time = 0;
+  lawn.combo = 0;
+  lawn.bestCombo = 0;
+  lawn.lastCutAt = -1;
   lawn.started = false;
   lawn.finished = lawn.mowable === 0;
   for (const c of lawn.cells) {
@@ -330,6 +347,14 @@ export function tick(lawn, input, dt = 1 / 60) {
       newlyMowed.push(i);
     }
   }
+  // A frame that catches several cells at once is one link in the chain, not
+  // several: the reward is for keeping the blade busy, not for a wide pass.
+  if (newlyMowed.length) {
+    lawn.combo = lawn.time - lawn.lastCutAt <= COMBO_WINDOW ? lawn.combo + 1 : 1;
+    lawn.lastCutAt = lawn.time;
+    if (lawn.combo > lawn.bestCombo) lawn.bestCombo = lawn.combo;
+  }
+
   if (!lawn.finished && lawn.mowed >= lawn.mowable) lawn.finished = true;
   return newlyMowed;
 }
