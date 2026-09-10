@@ -1,7 +1,7 @@
 {
   "name": "mow-your-commits",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
