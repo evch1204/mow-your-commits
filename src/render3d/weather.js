@@ -76,7 +76,7 @@ export function buildWeather(r) {
   r.snowGeo = new THREE.BufferGeometry();
   r.snowGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   r.snowMat = new THREE.PointsMaterial({
-    map: flakeTexture(), size: 0.5, transparent: true, opacity: 0,
+    map: flakeTexture(), size: 0.34, transparent: true, opacity: 0,
     depthWrite: false, fog: false, alphaTest: 0.05,
   });
   r.snow = new THREE.Points(r.snowGeo, r.snowMat);

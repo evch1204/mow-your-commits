@@ -108,8 +108,8 @@ export const OVER_FOV = 34;          // a longer lens: the far rows keep their s
 
 /** The sketch pass. */
 export const SKETCH = {
-  edge: 0.9,          // how black the ink goes
-  threshold: 0.0032,  // depth step (scaled by distance) that counts as an edge
+  edge: 0.8,          // how black the ink goes
+  threshold: 0.0042,  // depth step (scaled by distance) that counts as an edge
   grain: 0.12,        // paper noise, multiplied
   vignette: 0.18,
   boil: 1.6,          // pixels the edge sample wanders when the seed changes

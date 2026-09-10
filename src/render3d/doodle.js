@@ -145,9 +145,9 @@ export function tuftCard(level) {
 
       // bush and hedge: a filled silhouette, inner strokes, and (hedge) seeds
       const n = level === 3 ? 3 : 5;
-      const bodyH = level === 3 ? H * 0.9 : H * 0.9;
+      const bodyH = level === 3 ? H * 0.9 : H * 0.78;
       c.fillStyle = '#FFFFFF';
-      lobes(c, W / 2, base, W * 0.94, bodyH, n, rnd, level === 3 ? 0.55 : 0.16);
+      lobes(c, W / 2, base, W * 0.94, bodyH, n, rnd, level === 3 ? 0.55 : 0.12);
       c.fill();
       c.lineWidth = level === 3 ? 5.2 : 5.8;
       c.stroke();
@@ -166,18 +166,18 @@ export function tuftCard(level) {
 
       if (level === 4) {
         // two or three seed heads on wire stems, over the top of the hedge
-        c.strokeStyle = INK;
-        c.lineWidth = 3.4;
+        c.strokeStyle = 'rgba(44,44,42,0.82)';
+        c.lineWidth = 3.2;
         c.fillStyle = '#FFFFFF';
         for (let i = 0; i < 3; i++) {
-          const x = W * (0.28 + i * 0.22);
-          const top = base - bodyH * (0.94 + rnd() * 0.12);
+          const x = W * (0.26 + i * 0.24);
+          const top = base - H * (0.94 + rnd() * 0.05);
           c.beginPath();
-          c.moveTo(x, base - bodyH * 0.7);
-          c.quadraticCurveTo(x + (rnd() - 0.5) * 12, (base - bodyH) * 0.9, x, top);
+          c.moveTo(x, base - bodyH * 0.8);
+          c.quadraticCurveTo(x + (rnd() - 0.5) * 16, (base - bodyH + top) / 2, x, top);
           c.stroke();
           c.beginPath();
-          c.ellipse(x, top - 5, 6.5, 11, (rnd() - 0.5) * 0.5, 0, 7);
+          c.ellipse(x, top + 6, 7.5, 14, (rnd() - 0.5) * 0.5, 0, 7);
           c.fill();
           c.stroke();
         }
@@ -669,7 +669,7 @@ export function flakeTexture() {
   return cached('flake', () => canvasTexture(64, 64, (c) => {
     c.translate(32, 32);
     c.lineCap = 'round';
-    for (const [style, w] of [['rgba(44,44,42,0.55)', 8], ['#FFFFFF', 5]]) {
+    for (const [style, w] of [['rgba(44,44,42,0.3)', 7], ['#FFFFFF', 5.5]]) {
       c.strokeStyle = style;
       c.lineWidth = w;
       for (let i = 0; i < 3; i++) {

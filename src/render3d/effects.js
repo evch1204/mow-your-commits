@@ -99,9 +99,9 @@ export function buildEffects(r) {
   r.puffAt = 0;
 
   // tyre tracks: two ribbons stamped into the grass behind the mower
-  const trackGeo = new THREE.PlaneGeometry(0.3, 0.26);
+  const trackGeo = new THREE.PlaneGeometry(0.34, 0.3);
   trackGeo.rotateX(-Math.PI / 2);
-  const tr = fadePool(FLAT, trackTexture(), 0x3a4430, TRACK_PAIRS * 2, trackGeo);
+  const tr = fadePool(FLAT, trackTexture(), 0x2a3222, TRACK_PAIRS * 2, trackGeo);
   r.tracks = tr.mesh;
   r.trackAlpha = tr.alpha;
   r.tracks.renderOrder = 2;
@@ -253,7 +253,7 @@ export function stepTracks(r, dt) {
   for (let i = 0; i < r.trackAge.length; i++) {
     if (r.trackAge[i] > TRACK_LIFE) { r.trackAlpha[i] = 0; continue; }
     r.trackAge[i] += dt;
-    r.trackAlpha[i] = Math.max(0, 1 - r.trackAge[i] / TRACK_LIFE) * 0.5;
+    r.trackAlpha[i] = Math.max(0, 1 - r.trackAge[i] / TRACK_LIFE) * 0.8;
     any = true;
   }
   if (any) r.tracks.geometry.attributes.aAlpha.needsUpdate = true;
