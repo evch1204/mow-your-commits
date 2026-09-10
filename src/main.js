@@ -18,6 +18,7 @@ import {
 } from './app/hud.js';
 import { initReadme, refreshPreview, updateInstall } from './app/readme.js';
 import { flags, autoDrive, prewarm, prewarmFinish } from './app/debug.js';
+import { initSound, drive, cut, fanfare } from './sound.js';
 
 const TODAY = isoDay(new Date());
 const seed = flags.seed;
@@ -194,7 +195,7 @@ function whoseLawn() {
   return /s$/i.test(source.login) ? source.login + "'" : source.login + "'s";
 }
 
-/** A short burst of clippings when the lawn is done. */
+/** The payoff: a burst of clippings, and the four notes to go with it. */
 function confetti() {
   const cells = lawn.cells;
   for (let k = 0; k < 26; k++) {
@@ -203,11 +204,13 @@ function confetti() {
     flat.onMowed([i], true);
     if (k % 3 === 0) deep.onMowed([i], true);
   }
+  fanfare();
 }
 
 function showMowed(indices) {
   flat.onMowed(indices);
   deep.onMowed(indices);
+  cut(indices.some((i) => lawn.cells[i].heroic));
   showTag(describeCell(lawn.cells[lawn.lastMowed]));
 }
 
@@ -220,6 +223,7 @@ function prewarmArgs(seconds) {
 initInput({ stage, onCamera: toggleCamera, onRegrow: regrow });
 initHud({ onFinish: confetti });
 initReadme({ lawn: () => lawn, year: () => year, whose: whoseLawn });
+initSound($('sound'), { restore: flags.sound });
 
 for (const b of document.querySelectorAll('button[data-view]')) {
   b.addEventListener('click', () => setView(b.dataset.view));
@@ -304,6 +308,7 @@ function frame(ts) {
 
   const mowed = tick(lawn, input, dt);
   if (mowed.length) showMowed(mowed);
+  drive(lawn.mower.vel);
   renderers[active].draw(ts);
   updateHud(lawn, dt);
   followMower();
