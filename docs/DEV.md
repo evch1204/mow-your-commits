@@ -20,6 +20,21 @@ Two renderers share one model:
   wind sway. Instanced tiles plus four tuft builds scaled by the day's count. Sky dome,
   fog, hills, trees that change with the season, a sun that climbs in summer and sits low
   in winter, and weather that follows the mower.
+- `src/app/` — the page, split by job. `input.js` is the four booleans the mower steers
+  by (the keys, the on-screen pad, the `C` and `R` shortcuts); `hud.js` owns the strip over
+  the board, the last-mowed tag, the combo field and the end card; `readme.js` owns the
+  README preview, the downloads, the copies and the three install buttons; `debug.js`
+  reads every URL flag and holds `autodrive` and the two prewarms. `src/main.js` is the
+  wiring left over: which lawn, which year, which renderer, and the frame loop.
+- `src/style.css` — the whole page, in one file. `main.js` imports it, so Vite hashes it
+  into the build and `index.html` carries no `<style>` block.
+- `src/sound.js` — every noise the page makes, out of WebAudio oscillators and one buffer
+  of white noise: an engine hum whose pitch, brightness and gain follow `|mower.vel|`, a
+  band-passed puff per cut, a two-note chime on a heroic day, a four-note fanfare on the
+  end card. No assets, and nothing in it may throw. Silent until the 🔇 button next to
+  `regrow` is pressed, because no browser will start an `AudioContext` outside a gesture;
+  the choice lives in `localStorage` under `mow:sound` and is restored at the first click
+  or keypress of the next visit (`?sound=0` skips that restore).
 - `src/loader.js` — the username form, its states, the `?user=` param, the token box.
 - `src/core/route.js` — `planRoute(lawn, seed)`: the one wandering drive that mows every
   grown day, as waypoints, a smoothed spline, and the arc length at which each cell is
@@ -33,13 +48,26 @@ Two renderers share one model:
   GitHub Action. `svg.js`, `themes.js` and `font.js` touch no DOM and have no
   dependencies, so node can run them; `png.js` is the browser half, rasterising that SVG
   through a canvas for the download buttons.
-- `src/share.js` — share links, brag text, the markdown snippet and the workflow yaml.
+- `src/share.js` — share links, brag text, the markdown snippet, the workflow yaml, and
+  the four github.com URLs behind the three-step install: `newWorkflowUrl` (GitHub
+  pre-fills its own new-file editor from `?filename=` and `?value=`), `actionsUrl`,
+  `editReadmeUrl` and `newRepoUrl` (`github.com/new` has taken `owner`, `name`,
+  `description` and `visibility` since April 2023, and ignores what it cannot honour).
+  Every one runs its argument through `parseUserInput` and answers `''` for anything that
+  is not a login, which is how the page knows to nudge at the username box instead of
+  opening a tab on somebody else's repo.
 - `scripts/render-svg.mjs` — what the Action runs. Imports only `src/core` and
   `src/export`, so it works with `node_modules` deleted (CI asserts this).
 
 Grass reads the *count*, not just the level: each cell carries a `vigor` (where its count
 sits inside its own level's range), so a 40-contribution day grows taller, denser and
 darker than a 12 in the same green. The top 3% of days are `heroic` and grow a dandelion.
+
+**The combo.** `tick` keeps `lawn.combo`, `lawn.bestCombo` and `lawn.lastCutAt` (seconds
+of `lawn.time`). A cut inside `COMBO_WINDOW` (0.9 s) of the last one raises the run;
+anything slower resets it to 1, and a frame that catches several cells is one link, not
+several. The HUD shows it from 3 up and pulses on each rise, the end card keeps the best,
+the brag line mentions it from 5 up, and the renderers may add `x{combo}` to the +N popup.
 
 ## Commands
 
@@ -69,6 +97,7 @@ node scripts/render-svg.mjs --user torvalds --outputs "out/plain.svg?weather=0&b
 | `?yaw=45`, `?dist=6` | debug: preset look-around angle and camera distance |
 | `?finish=1` | debug: mow everything before the first paint (end card) |
 | `?og=1` | debug: hide controls, year list and landing strips, for social-card shots |
+| `?sound=0` | do not restore a remembered "sound on", so a screenshot stays silent |
 
 Only `?user`, `?year` and `?seed` travel in a share link.
 
@@ -160,4 +189,5 @@ in the `dur` of the `<animateMotion>`, and the drive ends at its second `keyTime
 - [ ] a hosted image URL (`/lawn.svg?user=`) for a one-line README embed
 - [ ] hand-drawn tuft and mower textures instead of procedural strokes
 - [ ] extension: content script that swaps `.js-calendar-graph` for the lawn
-- [ ] sound
+- [x] sound
+- [ ] a leaderboard for the fastest mow of a given year

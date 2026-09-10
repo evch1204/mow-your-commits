@@ -10,6 +10,14 @@ No tokens to create, no server, no `npm install` — the renderer imports only
 
 ## use it
 
+The short way: open [the site](https://evch1204.github.io/mow-your-commits/), type your
+username, and press the three buttons under the lawn. The first one opens GitHub's own
+new-file editor with the workflow below already written into it, the second opens the
+Actions tab so you can run it once, and the third copies the `<picture>` block and opens
+your profile README. Nothing is committed that you do not commit yourself.
+
+The long way, if you would rather see what you are pasting:
+
 ```yaml
 name: mow the lawn
 
