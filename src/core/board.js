@@ -40,9 +40,11 @@ export const GEOM = {
   LABEL_X: 8,
   LABEL_SIZE: 15,
   // legend: five swatches (bare + four greens), right-aligned to the bed
-  LEGEND_DY: 30,
+  LEGEND_DY: 36,
   LEGEND_SIZE: 16,
   LEGEND_GAP: 26,
+  // the key gets its own, wider pitch: a bush and a hedge spill past their tile
+  LEGEND_PITCH: 30,
   // Patrick Hand 16px, measured once: the canvas measures "more" for itself,
   // so only the exporter needs the number.
   LEGEND_MORE_W: 35,

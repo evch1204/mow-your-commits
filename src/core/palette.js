@@ -84,11 +84,11 @@ export const GRASS = {
   /** 2D px on a 16px tile. 17..24 is taller than a tile, so a hedge overlaps. */
   height: [[0, 0], [5, 7], [8, 11], [12, 16], [17, 24]],
   /** 2D ink width: none on sprouts, 1 around a clump, 1.4 bush, 1.6 hedge. */
-  width: [0, 1.1, 1, 1.4, 1.6],
+  width: [0, 1.4, 1.1, 1.4, 1.6],
   /** 3D card height, in tiles (one tile = one unit). The 3D renderer reads this. */
   tuftY: [[0, 0], [0.26, 0.35], [0.51, 0.69], [0.85, 1.15], [1.28, 1.73]],
   /** Half-width in 2D px: a bush and a hedge spill ~3px past a 16px tile. */
-  spread: [[0, 0], [3, 4], [4.7, 6.3], [9.4, 12.6], [10.2, 13.8]],
+  spread: [[0, 0], [3.4, 4.6], [5, 6.6], [9.4, 12.6], [10.2, 13.8]],
 };
 
 const span = (s, v) => s[0] + (s[1] - s[0]) * v;
@@ -194,7 +194,7 @@ export function bladeColor(level, season = 2, ramp = LIGHT_RAMP) {
 
 /** The darker strokes drawn inside a filled bush or hedge. */
 export function innerColor(fill, ramp = LIGHT_RAMP) {
-  return mix(fill, ramp.ink, 0.3);
+  return mix(fill, ramp.ink, 0.42);
 }
 
 /** Clipping / particle colour for a level. */
