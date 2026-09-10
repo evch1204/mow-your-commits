@@ -108,6 +108,23 @@ function wall(cx, base, halfW, h, w) {
   return { d, peakAt: [tops[0], tops[2], tops[4]] };
 }
 
+/**
+ * A single soft mound: one dome that starts round at the ground. `lobed` puts
+ * its shoulders a third of the way up and gives a bucket at this size, which
+ * is fine under three lobes and wrong under one.
+ */
+function dome(cx, base, halfW, h, w) {
+  return {
+    d: [
+      ['M', cx - halfW, base],
+      ['Q', w(cx - halfW, 1), w(base - h * 1.15, 1), w(cx, 0.8), base - h],
+      ['Q', w(cx + halfW, 1), w(base - h * 1.15, 1), cx + halfW, base],
+      ['Z'],
+    ],
+    peakAt: [[cx, base - h]],
+  };
+}
+
 /** One blade, curving as it goes up. Returns the path and its tip. */
 function blade(bx, foot, h, lean, w) {
   const tip = [bx + lean, foot - h];
@@ -144,7 +161,8 @@ export function grassOps(cell, x, y, season, opts = {}) {
   const scale = opts.scale == null ? 1 : opts.scale;
   const w = (v, a) => v + (rnd() - 0.5) * a;
 
-  const g = grassFor(level, cell.vigor || 0);
+  const vigor = Math.max(0, Math.min(1, cell.vigor || 0));
+  const g = grassFor(level, vigor);
   const cx = x + CELL / 2;
   const base = y + CELL - 1;
   const h = g.height * scale;
@@ -174,12 +192,21 @@ export function grassOps(cell, x, y, season, opts = {}) {
 
   // --- the body -----------------------------------------------------------
   let peakAt = null;
-  if (g.kind === 'tuft') {
-    // a low two-humped mound for the blades to stand in
-    const peaks = [[0.92, 0], [1, 0]].map((p) => [p[0] + (rnd() - 0.5) * 0.12, (rnd() - 0.5) * 1.2]);
-    const shell = lobed(cx, base, halfW, h * 0.5, peaks, 0.78, w);
-    // a shade darker than the blades, so the blades read against it
-    ops.push({ z: Z.BODY, t: 'path', d: shell.d, fill: inner, stroke: ink, w: g.width });
+  if (g.kind === 'sprouts') {
+    // a dark dot where the blades meet the ground: something is rooted here,
+    // rather than a few scratches floating on the tile
+    oval(Z.BODY, cx, base - 0.6, halfW * 0.55, 1.6, inner, null, 0);
+  } else if (g.kind === 'tuft') {
+    // a mini bush: one soft mound, half the tile high and three quarters of it
+    // wide, outlined in the same ink as its bigger cousins. It is drawn a
+    // touch paler than the grass standing in it, so the blades read against
+    // the mound and the mound reads against the tile it sits on.
+    const mound = CELL * 0.5 * scale * (0.9 + 0.2 * vigor);
+    const shell = dome(cx, base, halfW, mound, w);
+    ops.push({
+      z: Z.BODY, t: 'path', d: shell.d, fill: mix(fill, '#FFFFFF', 0.16), stroke: ink, w: g.width,
+    });
+    peakAt = shell.peakAt;
   } else if (filled) {
     // three deep round lobes for a bush; a clipped wall for a hedge
     const shell = g.kind === 'bush'
@@ -193,17 +220,23 @@ export function grassOps(cell, x, y, season, opts = {}) {
   // --- blades (thin kinds) or inner strokes (filled kinds) ----------------
   const n = g.blades;
   if (!filled) {
-    const foot = g.kind === 'tuft' ? base - h * 0.2 : base;
+    const reach = g.kind === 'tuft' ? 0.5 : 0.55;
+    // the blades splay outward from the middle: evenly spaced uprights read as
+    // a stencilled glyph, three hairs leaning apart read as grass
+    const swing = g.kind === 'tuft' ? 3 : 3.6;
     for (let i = 0; i < n; i++) {
       const f = n === 1 ? 0.5 : i / (n - 1);
-      const bx = cx - halfW * 0.75 + f * halfW * 1.5 + (rnd() - 0.5) * 1.6;
-      const bh = h * (0.78 + rnd() * 0.44);
-      const lean = bias + (rnd() - 0.5) * (5 + level);
+      const bx = cx - halfW * reach + f * halfW * reach * 2 + (rnd() - 0.5) * 1.2;
+      const bh = h * (0.84 + rnd() * 0.32);
+      const lean = bias * 0.6 + (f - 0.5) * swing + (rnd() - 0.5) * 2.2;
       const turned = autumn && rnd() < 0.15;
-      const b = blade(bx, foot, bh, lean, w);
-      stroke(Z.DETAIL, b.d, turned ? AUTUMN_BLADE : fill, g.width);
-      if (winter && i % 3 === 0) {
-        oval(Z.ACCENT, b.tip[0], b.tip[1] - 0.4, 1.5, 1.5, '#FFFFFF', null, 0);
+      const c = turned ? AUTUMN_BLADE : fill;
+      const b = blade(bx, base, bh, lean, w);
+      stroke(Z.DETAIL, b.d, c, g.width);
+      // a little leaf on the tip: what turns a scratch into a sprout
+      oval(Z.DETAIL, b.tip[0], b.tip[1], 1.3, 1, c, null, 0);
+      if (winter && i % 2 === 0) {
+        oval(Z.ACCENT, b.tip[0], b.tip[1] - 0.8, 1.5, 1.2, '#FFFFFF', null, 0);
       }
     }
   } else {
@@ -238,10 +271,11 @@ export function grassOps(cell, x, y, season, opts = {}) {
         oval(Z.ACCENT, w(p[0], 0.6), top, 1.2, 2.4, mix(fill, '#FFFFFF', 0.34), ink, 0.8);
       }
     }
-    // snow settles on the tops of a winter bush or hedge
-    if (winter) {
-      for (const p of peakAt) oval(Z.ACCENT, p[0], p[1] + 0.8, halfW * 0.3, 1.7, '#FFFFFF', null, 0);
-    }
+  }
+
+  // snow settles on the top of anything with a body to settle on
+  if (winter && peakAt) {
+    for (const p of peakAt) oval(Z.ACCENT, p[0], p[1] + 0.8, halfW * 0.3, 1.7, '#FFFFFF', null, 0);
   }
 
   // --- the best days of the year: a dandelion and a seed-head puff ---------

@@ -80,15 +80,24 @@ export const GRASS = {
    * silhouette for `bush` and `hedge`. Deliberately not a ramp: a bush is not
    * a tuft with more blades, it is a different drawing with its own detail.
    */
-  blades: [[0, 0], [3, 3], [5, 6], [4, 5], [6, 8]],
-  /** 2D px on a 16px tile. 17..24 is taller than a tile, so a hedge overlaps. */
-  height: [[0, 0], [5, 7], [8, 11], [12, 16], [17, 24]],
-  /** 2D ink width: none on sprouts, 1 around a clump, 1.4 bush, 1.6 hedge. */
-  width: [0, 1.4, 1.1, 1.4, 1.6],
+  blades: [[0, 0], [3, 4], [3, 4], [4, 5], [6, 8]],
+  /**
+   * 2D px on a 16px tile: 17.5..24 is taller than a tile, so a hedge overlaps
+   * the row above it. The two thin kinds stand higher than the plan's first
+   * table asked for. At 5..11 px they read as scratches on a flat tile at the
+   * scale the page actually draws the board, and the whole point of the
+   * grammar is that all five levels are shapes.
+   */
+  height: [[0, 0], [8, 10], [11, 13], [13.5, 17], [17.5, 24]],
+  /** 2D ink width: bold on sprouts, 1.1 round a clump, 1.4 bush, 1.6 hedge. */
+  width: [0, 1.6, 1.1, 1.4, 1.6],
   /** 3D card height, in tiles (one tile = one unit). The 3D renderer reads this. */
   tuftY: [[0, 0], [0.26, 0.35], [0.51, 0.69], [0.85, 1.15], [1.28, 1.73]],
-  /** Half-width in 2D px: a bush and a hedge spill ~3px past a 16px tile. */
-  spread: [[0, 0], [3.4, 4.6], [5, 6.6], [9.4, 12.6], [10.2, 13.8]],
+  /**
+   * Half-width in 2D px. A sprout's spray is narrow, a tuft's mound covers
+   * three quarters of its tile, and a bush and a hedge spill ~3px past theirs.
+   */
+  spread: [[0, 0], [3.6, 4.6], [6.4, 7.2], [9.4, 12.6], [10.2, 13.8]],
 };
 
 const span = (s, v) => s[0] + (s[1] - s[0]) * v;
@@ -181,15 +190,21 @@ export function stripe(hex) { return mix(hex, '#FFFFFF', 0.17); }
 
 /**
  * The colour a day's grass is drawn in: the blades of the two thin kinds, the
- * filled body of a bush or a hedge. The levels pull apart on purpose. A sprout
- * goes 35% toward ink so three hairs still read against their own tile, and a
- * hedge is GitHub's `#216E39` at full strength, dark enough that the ink
- * outline is all that separates it from the tile it stands on.
+ * filled body of a bush or a hedge. The levels pull apart on purpose, and each
+ * one is chosen against the tile it actually stands on, which for levels 2..4
+ * is darker than the grass and for level 1 is not.
+ *
+ * A level-1 tile is the lightest of the four, so 35% toward ink still landed
+ * *lighter* than its own tile and three sprouts washed out into it; 65% puts
+ * them clearly darker, which is what makes a quiet day read as a few dark
+ * hairs rather than a plain green square. A hedge goes the other way: GitHub's
+ * `#216E39` at full strength, dark enough that the ink outline is the only
+ * thing separating it from its tile.
  */
 export function bladeColor(level, season = 2, ramp = LIGHT_RAMP) {
   if (season === 0) return WINTER_BLADE[level] || WINTER_BLADE[4];
   const g = levelGreen(level, season, ramp);
-  return mix(g, ramp.ink, [0, 0.35, 0.18, 0.08, 0][level] || 0);
+  return mix(g, ramp.ink, [0, 0.65, 0.18, 0.08, 0][level] || 0);
 }
 
 /** The darker strokes drawn inside a filled bush or hedge. */

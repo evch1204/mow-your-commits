@@ -658,7 +658,7 @@ ok('height spans never step backwards', (() => {
 // 16px tile it stands on, so it overlaps the row above; a bush spills ~3px
 // past the tile's sides; sprouts stay well inside theirs.
 ok('a hedge is taller than a tile and a sprout is not',
-  grassFor(4, 0).height > GEOM.CELL && grassFor(1, 1).height < GEOM.CELL / 2,
+  grassFor(4, 0).height > GEOM.CELL && grassFor(1, 1).height < GEOM.CELL,
   `${grassFor(4, 0).height} / ${grassFor(1, 1).height}`);
 ok('a bush and a hedge spill past their tile, a tuft does not',
   grassFor(3, 0.5).spread > GEOM.CELL / 2 && grassFor(4, 0.5).spread > GEOM.CELL / 2
@@ -668,7 +668,7 @@ ok('the biggest day is the tallest', grassFor(4, 1).height === 24, String(grassF
 ok('vigor 0 is the bottom of the span',
   [0, 1, 2, 3, 4].every((l) => grassFor(l, 0).blades === GRASS.blades[l][0]));
 ok('grassFor clamps out-of-range vigor',
-  grassFor(4, 9).height === 24 && grassFor(4, -3).height === 17);
+  grassFor(4, 9).height === 24 && grassFor(4, -3).height === 17.5);
 // The 3D renderer scales its cards by this and nothing else, so it has to keep
 // meaning "tiles high" and keep stepping level by level.
 ok('tuftY still ramps for the 3D cards',
@@ -704,10 +704,29 @@ const bodyOf = (ops) => ops.filter((op) => op.z === Z.BODY);
 ok('a bare day and a cut day draw nothing',
   shapes[0].length === 0 && shapeFor(4, { mowT: 1 }).length === 0
     && shapeFor(4, { void: true }).length === 0);
-ok('sprouts are loose blades with no body',
-  bodyOf(shapes[1]).length === 0 && shapes[1].length === grassFor(1, 0.5).blades);
-ok('a tuft is blades on one filled clump',
-  bodyOf(shapes[2]).length === 1 && shapes[2].length === grassFor(2, 0.5).blades + 1);
+// The two smallest levels are shapes too, not scratches on a flat tile: a
+// sprout is a spray of leaf-tipped blades on a root dot, a tuft is the same
+// blades rising through an outlined mound.
+const leaves = (ops) => ops.filter((op) => op.t === 'oval' && op.z === Z.DETAIL).length;
+ok('sprouts are leaf-tipped blades on a root dot, with no outlined body',
+  bodyOf(shapes[1]).length === 1 && bodyOf(shapes[1])[0].t === 'oval'
+    && !bodyOf(shapes[1])[0].stroke && leaves(shapes[1]) === grassFor(1, 0.5).blades);
+ok('a tuft is those blades rising through an outlined mound',
+  bodyOf(shapes[2]).length === 1 && bodyOf(shapes[2])[0].t === 'path'
+    && bodyOf(shapes[2])[0].stroke && leaves(shapes[2]) === grassFor(2, 0.5).blades);
+ok('a tuft\'s mound is half its tile high and three quarters of it wide', (() => {
+  const b = bounds(bodyOf(shapes[2]));
+  // bounds() counts control points, and those sit outside the curve they
+  // bend, so a bowed side reports ~15% wider than what actually gets drawn
+  return b.h > GEOM.CELL * 0.42 && b.h < GEOM.CELL * 0.6
+    && b.w > GEOM.CELL * 0.68 && b.w < GEOM.CELL;
+})(), (() => {
+  const b = bounds(bodyOf(shapes[2]));
+  return `${b.h.toFixed(1)}x${b.w.toFixed(1)}`;
+})());
+ok('a tuft\'s blades rise clear above its mound',
+  bounds(shapes[2]).top < bounds(bodyOf(shapes[2])).top - 2,
+  `${bounds(shapes[2]).top.toFixed(1)} vs ${bounds(bodyOf(shapes[2])).top.toFixed(1)}`);
 ok('a bush and a hedge are a filled body with an ink outline',
   [3, 4].every((l) => {
     const body = bodyOf(shapes[l])[0];
