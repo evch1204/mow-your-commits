@@ -63,6 +63,22 @@ function defaultCaption(lawn, user) {
   return head + commas(lawn.totalContributions) + ' contributions ' + periodLabel(lawn);
 }
 
+/**
+ * What goes behind the board: 'none', 'canvas' (the theme's own ground) or
+ * 'paper' (the site's cream sheet). Transparent is the default because the
+ * picture's home is a README, and a filled rectangle is only ever right for one
+ * GitHub theme: dimmed, high-contrast and every third-party host get a beige or
+ * white box around the lawn instead. The old booleans still mean what they
+ * meant - `true` was the filled rectangle, `false` was transparent - so an
+ * existing caller keeps its picture.
+ */
+function backgroundMode(v) {
+  if (v === true) return 'canvas';
+  if (v === undefined || v === null || v === false) return 'none';
+  const s = String(v);
+  return s === 'canvas' || s === 'paper' ? s : 'none';
+}
+
 function normalize(lawn, opts) {
   const o = opts || {};
   const cols = lawn.cols;
@@ -86,7 +102,7 @@ function normalize(lawn, opts) {
     animate: !!o.animate,
     // both default on: the picture is a doodle lawn first, a chart second
     weather: o.weather === undefined ? true : !!o.weather,
-    background: o.background === undefined ? true : !!o.background,
+    background: backgroundMode(o.background),
     user: o.user || '',
     caption: o.caption === null ? null
       : (o.caption ? String(o.caption) : defaultCaption(lawn, o.user || '')),
@@ -270,7 +286,10 @@ function mowerGroup(theme, fx = null) {
  *              then the lawn regrows and the loop restarts
  *   weather    seasons: glyphs, frost, flakes, leaves, flowers, the climate bed
  *              and the season tint on the greens. Off gives GitHub's exact ramp.
- *   background draw the paper rectangle behind everything (off = transparent)
+ *   background what is behind the board: 'none' (default, transparent, so the
+ *              picture takes the colour of whatever it lands on), 'canvas'
+ *              (theme.paper: GitHub's white or #0D1117) or 'paper' (the cream
+ *              sheet). `true` means 'canvas' and `false` 'none', as before.
  *   caption    string, or null for none (default: "<n> contributions in <when>")
  *   user       github login, prefixes the caption with "@user - "
  *   seed       jitter seed for the blades and the route (default 7)
@@ -299,8 +318,12 @@ export function lawnToSvg(lawn, opts) {
 
   const parts = [];
 
-  // 1. paper
-  if (o.background) parts.push(`<rect width="100%" height="100%" fill="${theme.paper}"/>`);
+  // 1. the ground, if any. Nothing is the default: the lawn then sits straight
+  // on whatever is behind it, which on a README is GitHub's own canvas in
+  // whatever theme the reader chose.
+  const ground = o.background === 'canvas' ? theme.paper
+    : o.background === 'paper' ? theme.sheet : '';
+  if (ground) parts.push(`<rect width="100%" height="100%" fill="${ground}"/>`);
 
   // 2. caption
   if (o.caption) {
@@ -422,14 +445,16 @@ export function lawnToSvg(lawn, opts) {
     }
   }
 
-  // 10. Mon / Wed / Fri, with a paper halo so nothing can hide them
+  // 10. Mon / Wed / Fri, with a halo of the ground so nothing can hide them
   const labels = ['Mon', 'Wed', 'Fri'].map((d, i) => {
     const y = tileY(1 + i * 2) + CELL / 2 + 1 + GEOM.LABEL_SIZE * 0.35;
     return `<text x="${GEOM.LABEL_X}" y="${n2(y)}">${d}</text>`;
   });
-  // no paper means nothing to halo against, so the stroke goes with it
-  const halo = o.background
-    ? ` stroke="${theme.paper}" stroke-width="4" paint-order="stroke"` : '';
+  // No ground means nothing to halo against, so the stroke goes with it: the
+  // mower drives behind the letters for a few frames, which is nothing next to
+  // painting three wrong-coloured boxes on somebody else's theme.
+  const halo = ground
+    ? ` stroke="${ground}" stroke-width="4" paint-order="stroke"` : '';
   parts.push(`<g id="labels" font-size="${GEOM.LABEL_SIZE}" fill="${theme.pencil}"`
     + `${halo}>${labels.join('')}</g>`);
 

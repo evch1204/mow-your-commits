@@ -887,16 +887,47 @@ ok('as-is draws the mower', asIsSvg.includes('id="mower"'));
 ok('exporting never touches the lawn', JSON.stringify(svgLawn) === before);
 
 const darkSvg = lawnToSvg(svgLawn, { theme: 'dark' });
-ok('dark uses GitHub dark paper', darkSvg.includes('#0D1117'));
 // every green is season-tinted, so the ramp never appears verbatim; check the
 // four tinted flavours of the top dark green instead (e.g. summer -> #3cd251)
 ok('dark uses the GitHub dark ramp',
   SEASON_TINT.some(([t, a]) => darkSvg.includes(mix(THEMES.dark.greens[4], t, a))));
-ok('dark drops the paper colour', !darkSvg.includes('#FBF9F2'));
+ok('dark drops the cream sheet', !darkSvg.includes('#FBF9F2'));
 
 ok('the two themes carry the same fields',
   Object.keys(THEMES.light).sort().join(',') === Object.keys(THEMES.dark).sort().join(','),
   Object.keys(THEMES.light).sort().join(',') + ' vs ' + Object.keys(THEMES.dark).sort().join(','));
+
+// --- what sits behind the board -------------------------------------------
+// The picture's home is a README, and a README has more than one background:
+// light, dark, dimmed, high contrast, plus every non-GitHub host. Painting one
+// of them under the lawn puts a wrong-coloured box on all the others, so the
+// default paints none and the picture takes the colour it lands on.
+
+const groundOf = (doc) => (/<rect width="100%" height="100%" fill="([^"]+)"/.exec(doc)
+  || ['', ''])[1];
+ok('by default there is nothing behind the board', groundOf(svg) === '', groundOf(svg));
+ok('and with nothing behind them the day labels carry no halo',
+  !svg.includes('paint-order'));
+ok('bg=1 fills GitHub\'s own canvas, light and dark',
+  groundOf(lawnToSvg(svgLawn, { background: 'canvas' })) === '#FFFFFF'
+    && groundOf(lawnToSvg(svgLawn, { theme: 'dark', background: 'canvas' })) === '#0D1117',
+  groundOf(lawnToSvg(svgLawn, { background: 'canvas' })));
+ok('bg=paper fills the site\'s cream sheet',
+  groundOf(lawnToSvg(svgLawn, { background: 'paper' })) === '#FBF9F2'
+    && THEMES.light.sheet === '#FBF9F2');
+// the halo is the ground drawn again around the letters, so it can never be a
+// colour that is not actually behind them
+ok('a filled ground haloes the day labels in its own colour',
+  lawnToSvg(svgLawn, { background: 'paper' })
+    .includes('stroke="#FBF9F2" stroke-width="4" paint-order="stroke"')
+    && lawnToSvg(svgLawn, { background: 'canvas' })
+      .includes('stroke="#FFFFFF" stroke-width="4" paint-order="stroke"'));
+// the option predates the third value, and somebody's workflow still passes it
+ok('the old booleans still mean what they meant',
+  groundOf(lawnToSvg(svgLawn, { background: true })) === '#FFFFFF'
+    && groundOf(lawnToSvg(svgLawn, { background: false })) === '');
+ok('a ground nobody defined is no ground at all',
+  groundOf(lawnToSvg(svgLawn, { background: 'chartreuse' })) === '');
 
 // --- the file is well-formed XML ------------------------------------------
 // Nothing here parses the SVG it writes, so a stray quote or an unclosed <g>
@@ -932,6 +963,7 @@ for (const [name, doc] of [
   ['still', svg],
   ['dark', darkSvg],
   ['plain', lawnToSvg(svgLawn, { weather: false, background: false })],
+  ['sheet', lawnToSvg(svgLawn, { background: 'paper' })],
 ]) {
   ok(`the ${name} svg is well-formed`, malformed(doc) === '', malformed(doc));
 }
@@ -1183,10 +1215,12 @@ ok('plain lays one neutral bed', (/<g id="bed"[^>]*>((?:(?!<\/g>).)*)/.exec(plai
   .match(/<rect/g) || []).length === 2);
 ok('plain keeps the dandelions: they are data, not weather', plain.includes(DANDELION));
 ok('bg=0 leaves the background transparent', !plain.includes('<rect width="100%"'));
-ok('bg=0 drops the paper halo on the day labels',
-  !plain.includes(`stroke="${THEMES.light.paper}"`));
-ok('the paper is back when only the weather is off',
-  lawnToSvg(svgLawn, { weather: false }).includes('<rect width="100%"'));
+ok('bg=0 drops the halo on the day labels', !plain.includes('paint-order'));
+// the two flags are independent: a chart in GitHub's greens on GitHub's canvas
+// is as legitimate a picture as a transparent doodle lawn
+ok('the weather does not decide the ground',
+  lawnToSvg(svgLawn, { weather: false, background: 'canvas' }).includes('<rect width="100%"')
+    && !lawnToSvg(svgLawn, { weather: false }).includes('<rect width="100%"'));
 ok('plain is deterministic',
   lawnToSvg(svgLawn, { weather: false, background: false }) === plain);
 // the seed can arrive off a query string; NaN would poison every jitter and
@@ -1293,9 +1327,10 @@ ok('theme', opt('a?theme=dark').theme === 'dark' && opt('a?theme=light').theme =
 ok('animate', opt('a?animate=1').animate === true && opt('a?animate=0').animate === false);
 ok('mower', opt('a?mower=1').mower === true && opt('a?mower=0').mower === false);
 ok('weather', opt('a?weather=1').weather === true && opt('a?weather=0').weather === false);
-ok('bg=0 turns the background off',
-  opt('a?bg=0').background === false && opt('a?bg=1').background === true,
-  JSON.stringify(opt('a?bg=0')));
+ok('bg takes the three grounds',
+  opt('a?bg=0').background === 'none' && opt('a?bg=1').background === 'canvas'
+    && opt('a?bg=paper').background === 'paper',
+  JSON.stringify([opt('a?bg=0'), opt('a?bg=1'), opt('a?bg=paper')]));
 ok('caption text, and 0 or empty for none',
   opt('a?caption=hello%20there').caption === 'hello there'
     && opt('a?caption=0').caption === null && opt('a?caption=').caption === null);
@@ -1308,7 +1343,7 @@ ok('year',
 ok('several options at once', (() => {
   const o = opt('dist/lawn-dark.svg?theme=dark&animate=1&weather=0&bg=0&caption=0');
   return o.theme === 'dark' && o.animate === true && o.weather === false
-    && o.background === false && o.caption === null;
+    && o.background === 'none' && o.caption === null;
 })());
 
 // the option list and the table people read have to be the same list

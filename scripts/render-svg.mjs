@@ -65,9 +65,14 @@ export function parseOutput(line) {
   if (q.has('theme')) opts.theme = q.get('theme');
   if (q.has('animate')) opts.animate = q.get('animate') !== '0';
   if (q.has('mower')) opts.mower = q.get('mower') !== '0';
-  // the plain chart: no seasons, no paper behind it
+  // the plain chart: no seasons
   if (q.has('weather')) opts.weather = q.get('weather') !== '0';
-  if (q.has('bg')) opts.background = q.get('bg') !== '0';
+  // bg=0 is the default anyway (transparent, so the picture takes the reader's
+  // own theme); bg=1 paints GitHub's canvas under it, bg=paper the cream sheet
+  if (q.has('bg')) {
+    const b = q.get('bg');
+    opts.background = b === 'paper' ? 'paper' : b === '0' ? 'none' : 'canvas';
+  }
   if (q.has('caption')) {
     const c = q.get('caption');
     opts.caption = c === '' || c === '0' ? null : c;
@@ -175,7 +180,14 @@ async function main() {
   if (!args.demo && !user) throw new Error('--user is required (or pass --demo)');
 
   const token = args.demo ? '' : (process.env.GITHUB_TOKEN || '').trim();
-  const seed = args.seed ? Number(args.seed) : undefined;
+  // The seed is the route: which of the two ways the mower mows, how a pass
+  // weaves, where it stops for a moment. Without --seed it is the UTC day
+  // number, so a profile README mows a fresh route every morning while two
+  // renders on the same day still give the same file. (Under --demo it picks
+  // the fake year too, as it always did.) Logged, because a picture nobody can
+  // reproduce is a bug report nobody can answer.
+  const given = Number(args.seed);
+  const seed = Number.isFinite(given) ? given : Math.floor(Date.now() / 86400000);
   const today = isoDay(new Date());
 
   // One lawn per distinct year, built once and reused by every output.
@@ -199,9 +211,10 @@ async function main() {
   }
 
   console.log(args.demo ? 'mowing a demo lawn' : `mowing ${user}'s lawn`);
+  console.log(`  seed ${seed}`);
   for (const out of outputs) {
     const lawn = await lawnFor(out.year);
-    const svg = lawnToSvg(lawn, { ...out.opts, user: args.demo ? '' : user });
+    const svg = lawnToSvg(lawn, { seed, ...out.opts, user: args.demo ? '' : user });
     const file = resolve(cwd, out.path);
     await mkdir(dirname(file), { recursive: true });
     await writeFile(file, svg, 'utf8');

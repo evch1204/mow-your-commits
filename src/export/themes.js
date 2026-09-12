@@ -1,6 +1,14 @@
-// Colour sets for the exported picture. Light is the site's paper palette,
-// verbatim from src/core/palette.js. Dark is GitHub's own dark-mode ramp so the
-// image sits on a dark profile README without a bright rectangle around it.
+// Colour sets for the exported picture. Light is the site's palette, verbatim
+// from src/core/palette.js, over GitHub's own light canvas. Dark is GitHub's
+// dark-mode ramp so the image sits on a dark profile README without a bright
+// rectangle around it.
+//
+// `paper` is the canvas the picture is drawn *for*, not a sheet it is drawn on:
+// it is the colour every mix and every halo in svg.js assumes is behind the
+// board (bed() lightens the soil toward it), and the picture almost always
+// lands on a README, where that is white or #0D1117. The site's cream sheet is
+// still here as `sheet`, for anyone who wants the doodle on its own page
+// (`bg=paper`).
 //
 // Pure data. No DOM, no dependencies.
 
@@ -8,7 +16,8 @@ import { PAPER, INK, PENCIL, BARE, GITHUB, FROST, DIRT_BY_SEASON } from '../core
 
 export const THEMES = {
   light: {
-    paper: PAPER,
+    paper: '#FFFFFF',
+    sheet: PAPER,
     ink: INK,
     pencil: PENCIL,
     bare: BARE,
@@ -19,6 +28,8 @@ export const THEMES = {
   },
   dark: {
     paper: '#0D1117',
+    // a dark README has no second sheet to offer: the canvas is the sheet
+    sheet: '#0D1117',
     ink: '#E6EDF3',
     pencil: '#8B949E',
     bare: '#21262D',
