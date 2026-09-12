@@ -16,8 +16,10 @@ inputs:
   outputs:
     description: >-
       one per line, path relative to the workspace plus options as a query
-      string: theme=dark, animate=1, year=2025, mowed=0..1 or as-is, mower=0,
-      weather=0 for no seasons, bg=0 for a transparent background
+      string: theme=dark, animate=1 (a fresh route every night), year=2025,
+      mowed=0..1 or as-is, mower=0, weather=0 for no seasons, bg for what goes
+      behind the board (0 nothing, the default; 1 GitHub's canvas; paper the
+      cream sheet)
     required: false
     default: |
       dist/lawn.svg?animate=1

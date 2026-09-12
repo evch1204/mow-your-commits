@@ -108,10 +108,15 @@ npm run build                              # dist/ uses relative paths (GitHub P
 node scripts/smoke.mjs                     # pure-node assertions over sim, data, export
 node scripts/smoke.mjs --live torvalds     # also hits the real contributions API
 
-node scripts/render-svg.mjs --demo --outputs "docs/lawn.svg?animate=1
+node scripts/render-svg.mjs --demo --seed 3 --outputs "docs/lawn.svg?animate=1
 docs/lawn-dark.svg?theme=dark&animate=1"   # the README pictures
-node scripts/render-svg.mjs --user torvalds --outputs "out/plain.svg?weather=0&bg=0"
+node scripts/render-svg.mjs --user torvalds --outputs "out/plain.svg?weather=0"
 ```
+
+Without `--seed` the render seeds itself from the UTC day number and logs it
+(`  seed 20706`), so the Action mows a different route every night and two runs
+on the same day still write the same file. Pass `--seed` for a picture you want
+to be able to render again — the committed `docs/` pictures are one.
 
 ## URL flags
 
@@ -174,9 +179,12 @@ that is the demo lawn. It stays on screen while a real one loads and after any f
 GitHub's GraphQL API with the default action token, falls back to the public mirror, and
 renders through the same `src/core` + `src/export` code the site uses, so the README
 picture is the board on the page. Its default outputs carry `animate=1`, so the picture
-that lands in a profile is the mower driving the year; `weather=0&bg=0` goes the other
-way and gives a plain transparent chart in GitHub's own greens. Details and every
-option: [`action/README.md`](../action/README.md).
+that lands in a profile is the mower driving the year; `weather=0` goes the other way and
+gives a plain chart in GitHub's own greens. Nothing is painted behind the board unless an
+output asks for it (`bg=1` GitHub's canvas, `bg=paper` the cream sheet): a transparent
+picture is the only one that is right in all four GitHub themes at once, and the Mon /
+Wed / Fri halo follows the same rule, because a halo is the background drawn again.
+Details and every option: [`action/README.md`](../action/README.md).
 
 ## Screenshots
 
@@ -219,6 +227,8 @@ in the `dur` of the `<animateMotion>`, and the drive ends at its second `keyTime
 
 - [x] the animated README lawn mows the whole year, in passes with round turns, leaving
       tyre tracks, exhaust and clippings like the game
+- [x] the picture sits on GitHub's own background, in whichever theme the reader is on,
+      and the nightly run mows a route nobody has seen before
 - [ ] a hosted image URL (`/lawn.svg?user=`) for a one-line README embed
 - [ ] hand-drawn tuft and mower textures instead of procedural strokes
 - [ ] extension: content script that swaps `.js-calendar-graph` for the lawn

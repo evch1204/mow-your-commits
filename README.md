@@ -99,17 +99,19 @@ The site's **copy workflow** button, under "or copy it yourself", hands you the 
 
 ### Options
 
-The workflow above ships `?animate=1`, so the mower mows the whole year in passes, leaves
-its tyre tracks behind it, drives off the right edge and the lawn regrows. Drop it for a still, half-mowed board. Just want the
-graph? `?weather=0&bg=0` gives GitHub's exact greens on a transparent background, with no
-seasons. Every option, one per output line:
+The workflow above ships `?animate=1`, so the mower mows the whole year, leaves its tyre
+tracks behind it, drives off the right edge and the lawn regrows — and the Action reseeds
+itself from the date, so it mows a different route every night. Drop it for a still,
+half-mowed board. Just want the graph? `?weather=0` gives GitHub's exact greens with no
+seasons. The picture is transparent unless you ask for a background, so it sits on
+whatever README theme the reader is on. Every option, one per output line:
 
 | option | values | what it does |
 | --- | --- | --- |
 | `theme` | `light`, `dark` | GitHub's dark ramp on `#0D1117` |
-| `animate` | `1` | the mower mows the whole year row by row, then it regrows (`mowed` is ignored) |
+| `animate` | `1` | the mower mows the whole year and it regrows: some nights round the outside and inward, some nights stripe by stripe with a loop turn at each end, slowing through the thick weeks and stopping for a breather now and then (`mowed` is ignored) |
 | `weather` | `0` | no seasons: no doodles, frost, leaves or blossom, and GitHub's exact greens |
-| `bg` | `0` | no paper behind the board: a transparent picture |
+| `bg` | `0` (default), `1`, `paper` | what goes behind the board: nothing, GitHub's own canvas colour, or the site's cream sheet |
 | `year` | `2025` | a calendar year instead of the rolling 52 weeks |
 | `mowed` | `0`..`1`, `as-is` | how much is already cut (default `0.5`) |
 | `mower` | `0` | park the mower off the picture (ignored under `animate`) |
