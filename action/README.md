@@ -1,7 +1,7 @@
 # the `mow your commits` action
 
 Renders a GitHub contribution graph as a doodle lawn and writes it into your
-workspace as an SVG. By default the mower drives the whole year on a loop
+workspace as an SVG. By default the mower wanders the whole year on a loop
 (`animate=1`); drop that and you get a still, half-mowed board. The picture is
 transparent, so it sits on GitHub's own background whichever theme the reader
 is on, and the run seeds itself from the date, so it mows a different route
@@ -71,7 +71,7 @@ Then in `USER/USER/README.md`:
 | `year` | `2025` | a calendar year instead of the rolling 52 weeks |
 | `mowed` | `0`..`1` (default `0.5`), `as-is` | how much of the lawn is already cut |
 | `mower` | `0` | park the mower off the picture. Ignored under `animate`: the animation *is* the mower driving. |
-| `animate` | `1` | SMIL: the mower mows the whole year, drives off the edge, and the lawn regrows. It mows one of two ways, picked by the night's seed — round the outside and inward, like a ride-on, or stripe by stripe with a loop turn at each end, like a tractor — slows through the thick weeks, and stops for a breather once or twice on the way. `mowed` and `mower` are ignored. Roughly a 40-55 s loop and 300-500 kB, depending on how busy the year is. |
+| `animate` | `1` | SMIL: the mower wanders the whole year, drives off the edge, and the lawn regrows. It roams rather than striping — runs of every length, a round one-cell turn wherever the next grass is, on the board and never over the day labels — it never pauses and never crawls, and every grown day is cut before it leaves. `mowed` and `mower` are ignored. Roughly a 45-65 s loop and 300-500 kB, depending on how busy the year is. |
 | `weather` | `0` | no seasons: no month doodles, frost, flakes, leaves or blossom, one neutral bed, and GitHub's exact greens. Dandelions stay: they are data, not weather. |
 | `bg` | `0` (default), `1`, `paper` | what is painted behind the board: `0` nothing, so the picture is transparent and takes the reader's own README background; `1` GitHub's canvas for the theme (`#FFFFFF` or `#0D1117`); `paper` the site's cream sheet |
 | `caption` | text, or `0` for none | replaces "1,234 contributions in the last year" |
@@ -89,9 +89,10 @@ outputs: |
 
 The animated picture is drawn from a seed, and without `--seed` that seed is
 the UTC day number. A workflow on the usual `cron: '0 3 * * *'` therefore mows a
-route nobody has seen before every morning — a different way round, a different
-hand on the weave, a different place to stop — while two runs on the same day
-still write the same bytes. The seed is in the Action log (`  seed 20706`), so a
+route nobody has seen before every morning — the seed picks the row it drives in
+on, how long every run is before it turns, and which way it turns — while two
+runs on the same day still write the same bytes. However it wanders, it finishes
+the whole year. The seed is in the Action log (`  seed 20706`), so a
 picture you liked can be rendered again by hand with `--seed`.
 
 ## where the data comes from

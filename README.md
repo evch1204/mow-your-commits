@@ -99,9 +99,10 @@ The site's **copy workflow** button, under "or copy it yourself", hands you the 
 
 ### Options
 
-The workflow above ships `?animate=1`, so the mower mows the whole year, leaves its tyre
-tracks behind it, drives off the right edge and the lawn regrows — and the Action reseeds
-itself from the date, so it mows a different route every night. Drop it for a still,
+The workflow above ships `?animate=1`, so the mower wanders the whole year — turning
+wherever the grass is, never twice the same way — leaves its tyre tracks behind it, drives
+off the right edge and the lawn regrows. The Action reseeds itself from the date, so it
+takes a different route every night and always finishes. Drop it for a still,
 half-mowed board. Just want the graph? `?weather=0` gives GitHub's exact greens with no
 seasons. The picture is transparent unless you ask for a background, so it sits on
 whatever README theme the reader is on. Every option, one per output line:
@@ -109,7 +110,7 @@ whatever README theme the reader is on. Every option, one per output line:
 | option | values | what it does |
 | --- | --- | --- |
 | `theme` | `light`, `dark` | GitHub's dark ramp on `#0D1117` |
-| `animate` | `1` | the mower mows the whole year and it regrows: some nights round the outside and inward, some nights stripe by stripe with a loop turn at each end, slowing through the thick weeks and stopping for a breather now and then (`mowed` is ignored) |
+| `animate` | `1` | the mower wanders the whole year and it regrows: runs of every length, a round turn wherever the next patch of grass is, never a pause, and every day cut by the end (`mowed` is ignored) |
 | `weather` | `0` | no seasons: no doodles, frost, leaves or blossom, and GitHub's exact greens |
 | `bg` | `0` (default), `1`, `paper` | what goes behind the board: nothing, GitHub's own canvas colour, or the site's cream sheet |
 | `year` | `2025` | a calendar year instead of the rolling 52 weeks |

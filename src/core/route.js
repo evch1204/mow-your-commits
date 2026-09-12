@@ -1,50 +1,46 @@
 // One drive that mows the whole year. Pure data + maths, no DOM, no
 // dependencies: the exported SVG animation and its tests both run on this.
 //
-// The drive is what a person does with a riding mower, and the seed picks
-// which of the two ways it is done:
+// The mower wanders. It does not drive the board end to end and it does not
+// follow a shape somebody drew in advance: from wherever it is standing it
+// looks at every day still standing, works out the arc-then-straight that
+// would reach it, and takes whichever of those cuts the most grass for the
+// least driving - with a die roll on top, so two seeds wander differently and
+// a straight answer never wins by a hair twice.
 //
-//   'spiral' - the ride-on's way. Round the outside of the board and then
-//              inward, ring by ring, cutting each corner with a quarter arc
-//              that stays on the grass, and out along the middle row.
-//   'rows'   - the stripe mower's way. Adjacent rows in a serpentine, so the
-//              cut stripes grow in order down the board instead of
-//              alternating, with an omega turn between them: the loop a
-//              tractor drives when the next swath is closer than its turning
-//              circle - swing away from it, round through more than a half
-//              turn, and straighten onto it.
+// Two rules keep that from turning back into stripes. Every run is cut off at
+// a length drawn fresh for that move (RUN, 5 to 18 cells), so a row is almost
+// never mown end to end in one go and the mower turns somewhere in the middle
+// of the board to go and find grass elsewhere. And every turn is a real
+// circle of radius 1 that has to start and finish on the board, so the tractor
+// steers rather than pivoting, and never swings out over the month labels
+// above, the legend below or the Mon/Wed/Fri column on the left. That last one
+// is what the owner saw as the mower "stopping on Fri and Wed": the old omega
+// turn hung off the left edge, right on top of the labels.
 //
-// Rows used to be taken evens then odds, which meant half the loop looked like
-// a striped board of alternate rows and the only turns anywhere were the
-// U-turns off the edges: "it only moves horizontally back and forth"
-// (docs/plans/readme-drive.md). Every pass still carries a gentle hand-drawn
-// weave so the tractor steers rather than slides, thick grass slows it down,
-// and once or twice a loop the driver stops for a breather.
+// It used to mow in two fixed ways, a spiral and a serpentine of stripes, with
+// deliberate breathers and a slow crawl through thick weeks
+// (docs/plans/readme-drive.md). Both of those read as lag rather than as life -
+// "it occasionally gets stuck and keeps going" - so the drive now has exactly
+// two speeds, SPEED down a run and TURN_SPEED round a bend, and never stops.
 //
-// A pass down a row cuts that row and nothing else (MOW_RADIUS 0.67 against a
-// 1-cell pitch, weave under 0.3), so every grown day sits on a pass. `mowWalk`
-// proves it anyway: a route with a hole in it would ship a tuft that never gets
-// cut into somebody's README.
-//
-// It used to be a greedy tour with a turn penalty; drawn on the board that was
-// a scribble of hairpins, and `rotate="auto"` swung the mower round each one.
+// Finishing is not left to luck. Every move is aimed at the centre of a day
+// that is still standing, so every day is reachable in one move from almost
+// anywhere; the planner tracks what it has cut, and `mowWalk` proves the whole
+// thing at the end - a route with a hole in it would ship a tuft that never
+// gets cut into somebody's README, on a loop, forever.
 
-import { MOW_RADIUS, BLADE_OFFSET, rng, hash } from './lawn.js';
+import { MOW_RADIUS, BLADE_OFFSET, rng } from './lawn.js';
 
 /**
- * The drive, in cells per second: down a pass, and round a turn. A pass is 10
- * rather than the 9 it was, because the thick-grass factor below only ever
- * slows the tractor down: at 9 the demo year came round in 58 s, and a README
- * picture that takes a minute to loop is one nobody watches twice.
+ * The drive, in cells per second: down a run, and round a bend. A wander is a
+ * longer drive than seven passes were - it doubles back, and the turns are on
+ * the board rather than off the end of a row - so the run speed is up from the
+ * 9 the striped mower ran at. The demo year then comes round in about a
+ * minute, which is a loop somebody watches twice.
  */
-export const SPEED = 10;
+export const SPEED = 11;
 export const TURN_SPEED = 5.5;
-/**
- * Thick grass slows the tractor, the way it does in a field: the tallest day
- * in a pass's swath picks the factor, by level. Real and data-driven, so a
- * busy week reads as effort rather than as a wobble somebody dialled in.
- */
-const THICK = [1, 1, 1, 0.85, 0.7];
 
 /**
  * Where the drive starts and parks, in cells past the board edges. The entry
@@ -54,57 +50,90 @@ const THICK = [1, 1, 1, 0.85, 0.7];
  */
 const ENTRY_X = -4.5;
 const PARK_X = 2.5;
-/** The first weave knot: the run-in from the edge stays straight. */
+/** How far in the run-in from the edge reaches before the wander takes over. */
 const RUN_IN = 3.5;
 /**
  * The weave: half-wave length and amplitude ranges, in cells. Amplitude must
- * stay under 1 - MOW_RADIUS or a pass would nick the row beside it.
+ * stay under 1 - MOW_RADIUS or a run would nick the row beside it.
  */
 const WEAVE_LEN = [3, 5];
 const WEAVE_AMP = [0.1, 0.22];
-/** A leg shorter than this is driven straight: no room to steer, so no weave. */
+/** A run shorter than this is driven straight: no room to steer, so no weave. */
 const WEAVE_MIN = 3;
+
+/** The turning circle, in cells. One cell is what rotate="auto" reads as steering. */
+const TURN_R = 1;
 /**
- * A spiral corner. Radius 1 keeps the arc on the board and still cuts the
- * corner cell: an arc from (xr-1, zt) to (xr, zt+1) about (xr-1, zt+1) passes
- * 0.41 from the corner cell's centre, inside MOW_RADIUS.
+ * How long a run may be, in cells. One cap is drawn per move and every
+ * candidate that move is held to it: this is the wander. Without it the best
+ * move is nearly always "carry on to the end of the row", which is the stripe
+ * mower again.
  */
-const CORNER_R = 1;
+const RUN = [5, 18];
 /**
- * The omega turn's radius, in cells. Any r above shift/2 closes; 0.9 keeps
- * every arc wider than the one-cell radius rotate="auto" needs to look like
- * steering, while the loop still only reaches about 2 cells past the board.
+ * How far ahead of the blade a run looks for a reason to keep going, in cells.
+ * A real year is bare about a third of the time, so at 1.2 - one cell of grass
+ * and no more - a run stopped at every gap and the median came out at five
+ * cells, which reads as a stutter of hops rather than as mowing. 1.7 steps
+ * over a single bare day and stops at two.
  */
-const OMEGA_R = 0.9;
-/** The breather: how long the mower stands still, and how many times a loop. */
-const PAUSE_SECS = [0.6, 0.9];
-const PAUSES = [1, 3];
+const REACH = 1.7;
+/** How finely a candidate move is walked, in cells. */
+const STEP = 0.25;
+/** No candidate may need more than three quarters of a circle to line up. */
+const MAX_SWEEP = Math.PI * 1.5;
+/** An arc past this is a big loop: fine now and then, not every move. */
+const BIG_SWEEP = (150 * Math.PI) / 180;
+/** Under three degrees an arc is a twitch, not a bend: leave it at run speed. */
+const TINY_SWEEP = 0.05;
+/** Within 20 degrees of horizontal is "along the rows". */
+const FLAT = Math.sin((20 * Math.PI) / 180);
+const FLAT_BONUS = 1.3;
+const BIG_TURN_COST = 0.7;
+/** The die on every candidate: what makes two seeds different drives. */
+const NOISE = [0.75, 0.5];
+/** A planner that cannot finish must say so rather than spin. */
+const MAX_MOVES = 600;
+/** How far the mower rolls on after a recovery turn, in cells. */
+const NUDGE = [1, 3];
+/**
+ * The blade radius the planner scores candidates with. The weave moves the
+ * mower up to WEAVE_AMP[1] off the line it measured, so it works to that much
+ * less: a day the planner says a move will take is then still inside the real
+ * MOW_RADIUS once the weave is drawn on, which is what makes "every move cuts
+ * at least the day it was aimed at" true and the whole thing finish. What was
+ * actually cut is booked off the drawn cubics instead - see `takeDrawn`.
+ */
+const PLAN_R = MOW_RADIUS - WEAVE_AMP[1] - 0.02;
 /** How finely the curve is walked when working out what it cuts. */
 const FINE = 0.02;
 
+const HALF = Math.PI / 2;
+const TAU = Math.PI * 2;
 const dist = (a, b) => Math.hypot(b.x - a.x, b.z - a.z);
 
 /**
  * Plan the drive.
  *
  * @param lawn from createLawn(); never mutated.
- * @param seed picks the strategy, its mirror, the weave and the breathers.
+ * @param seed picks the row it enters on, every run's cap and every die roll.
  * @returns {{
  *   waypoints: Array<{x, z}>,           // cell units, the frame lawn.mower lives in
  *   curve: Array<{a, c1, c2, b, kind, speed}>, // one cubic per span
  *   cuts: Map<number, number>,          // cell index -> arc length at which it is cut
  *   length: number,                     // total arc length, in cells
- *   strategy: 'spiral' | 'rows',
+ *   strategy: 'wander',
  * }}
- * `kind` is 'drive' on a pass, 'turn' on an arc, and 'pause' on a zero-length
- * span where the mower stands still for `secs`. `speed` is cells per second.
- * `cuts` has an entry for every mowable cell; a route that cannot reach one
- * throws rather than returning a drive that leaves a tuft standing.
+ * `kind` is 'drive' on a run and 'turn' on an arc; `speed` is cells per second
+ * and is one of exactly two numbers. `cuts` has an entry for every mowable
+ * cell; a route that cannot reach one throws rather than returning a drive
+ * that leaves a tuft standing.
  */
 export function planRoute(lawn, seed = 7) {
   const rows = lawn.rows;
   const cols = lawn.cols;
   const rnd = rng(seed * 7919 + 13);
+  const ctx = ground(lawn);
 
   // Only grown days are mowable; level 0 is bare dirt and is never "cut".
   const targets = [];
@@ -114,23 +143,52 @@ export function planRoute(lawn, seed = 7) {
     targets.push({ i, x: c.col + 0.5, z: c.row + 0.5 });
   }
 
-  // The seed arrives as a day number from the Action, so consecutive nights
-  // are consecutive integers, and an LCG's first draw walks in a straight line
-  // over those: eight spirals running, then eight serpentines. hash() is the
-  // sine scatter the leaning columns already use, and it has no such run in it.
-  //
-  // The spiral's rings step inward two rows at a time and finish on the middle
-  // one, so it only closes on an odd board. GitHub's is seven rows, forever.
-  const wantSpiral = hash(seed * 1.7 + 0.5) < 0.5;
-  const strategy = wantSpiral && rows >= 5 && rows % 2 === 1 ? 'spiral' : 'rows';
-  const mirror = hash(seed * 3.1 + 0.9) < 0.5;
-  const curve = strategy === 'spiral' ? spiral(rows, cols, rnd) : serpentine(rows, cols, rnd);
-  // The mirror flips the whole drive about the middle row: the spiral enters
-  // along the bottom row and goes the other way round, the serpentine stripes
-  // bottom to top. With seven rows both still finish on row 3, heading east.
-  if (mirror) {
-    for (const sp of curve) for (const p of [sp.a, sp.c1, sp.c2, sp.b]) p.z = rows - p.z;
+  const curve = [];
+  // In from off the left edge, along a row the seed picks, dead straight: the
+  // run-in and the park run are the only two pieces of the drive allowed
+  // outside the board, and they are the frames where the mower is off-picture.
+  const z0 = Math.floor(rnd() * rows) + 0.5;
+  run(curve, ENTRY_X, z0, 0, RUN_IN - ENTRY_X, rnd, false, null);
+  let pose = { x: RUN_IN, z: z0, h: 0 };
+  takeDrawn(ctx, curve, 0);
+
+  let pending = targets.filter((t) => !ctx.cut[t.i]);
+  let left = pending.length;
+  let moves = 0;
+  while (left > 0) {
+    if (++moves > MAX_MOVES) {
+      throw new Error(`planRoute: gave up with ${left} cell(s) standing`);
+    }
+    const cap = RUN[0] + rnd() * (RUN[1] - RUN[0]);
+    // The cap first. If nothing at all is within it - the last few tufts can
+    // be right across the board - the same search runs again uncapped, so the
+    // wander is a preference the planner can drop rather than a trap.
+    let best = null;
+    let bestScore = 0;
+    for (const limit of [cap, Infinity]) {
+      for (const t of pending) {
+        for (const side of [1, -1]) {
+          const cand = reach(ctx, pose, t.x, t.z, side, limit, t.i);
+          if (!cand) continue;
+          const sc = score(cand, rnd());
+          if (sc > bestScore) { bestScore = sc; best = cand; }
+        }
+      }
+      if (best) break;
+    }
+    const from = curve.length;
+    if (best) {
+      emit(curve, best, rnd, ctx);
+      pose = { x: best.ex, z: best.ez, h: best.eh };
+    } else {
+      pose = recover(curve, pose, ctx, rows, rnd);
+    }
+    takeDrawn(ctx, curve, from);
+    pending = pending.filter((t) => !ctx.cut[t.i]);
+    left = pending.length;
   }
+
+  park(curve, pose, ctx, cols, rows);
 
   const walk = mowWalk(curve, targets, lawn);
   // Loud beats wrong: a route with a hole in it would ship a tuft that never
@@ -138,126 +196,439 @@ export function planRoute(lawn, seed = 7) {
   if (walk.missed.length) {
     throw new Error(`planRoute: ${walk.missed.length} cell(s) not on any pass`);
   }
-  for (let i = 0; i < curve.length; i++) {
-    curve[i].speed = curve[i].kind === 'turn' ? TURN_SPEED : SPEED * THICK[walk.tall[i]];
-  }
-  breathers(curve, rnd);
+  for (const sp of curve) sp.speed = sp.kind === 'turn' ? TURN_SPEED : SPEED;
 
   const waypoints = curve.map((sp) => sp.a);
   waypoints.push(curve[curve.length - 1].b);
 
-  return { waypoints, curve, cuts: walk.cuts, length: walk.length, strategy };
+  return { waypoints, curve, cuts: walk.cuts, length: walk.length, strategy: 'wander' };
 }
 
-// --- the two ways to mow ---------------------------------------------------
+// --- the board the wanderer reasons about ----------------------------------
 
 /**
- * Round the outside and then inward. Ring k is rows k / rows-1-k and columns
- * k / cols-1-k: along the top row, a quarter arc into the last column, down
- * it, along the bottom row, up the first column, and an arc that lands on the
- * next ring's top row already heading east. Seven rows is three rings; the
- * innermost has no columns left to drive, so it turns straight round at the
- * right and omegas back onto the middle row, which drives off the right edge.
+ * What the planner keeps between moves: which days are grown, which it has
+ * already cut, and where the mower's centre is allowed to be. The bounds are
+ * the picture's margins in cell units - x from a fifth of a cell left of the
+ * board to a cell and a bit past its right edge, z the seven rows exactly -
+ * and every candidate move is sampled against them. A turn at the left edge
+ * therefore has to begin on the board, which is what keeps the tractor off the
+ * Mon/Wed/Fri labels. Column 0 still gets cut: the blade rides BLADE_OFFSET
+ * ahead, so a mower at x = 0.8 heading west reaches it.
  */
-function spiral(rows, cols, rnd) {
-  const out = [];
-  let zt = 0.5;
-  let zb = rows - 0.5;
-  let xl = 0.5;
-  let xr = cols - 0.5;
-  let first = true;
-  for (;;) {
-    leg(out, first ? ENTRY_X : xl, zt, xr - CORNER_R, zt, rnd, first);
-    arcTo(out, xr - CORNER_R, zt + CORNER_R, CORNER_R, -Math.PI / 2, 0);
-    // on the innermost ring this leg is a point: the two arcs meet as one
-    // half circle about the same centre, which is the turn a tractor makes
-    leg(out, xr, zt + CORNER_R, xr, zb - CORNER_R, rnd, false);
-    arcTo(out, xr - CORNER_R, zb - CORNER_R, CORNER_R, 0, Math.PI / 2);
-    first = false;
-    if (zb - zt < 3) {
-      // one row left in the middle of the ring: run the bottom row out to the
-      // inner corner, loop back up onto it, and leave off the right edge
-      leg(out, xr - CORNER_R, zb, xl, zb, rnd, false);
-      omega(out, xl, zb, zt + 1 - zb, -1);
-      leg(out, xl, zt + 1, cols + PARK_X, zt + 1, rnd, false);
-      return out;
+function ground(lawn) {
+  const cols = lawn.cols;
+  const rows = lawn.rows;
+  const grown = new Uint8Array(cols * rows);
+  for (const c of lawn.cells) {
+    if (!c.void && c.level > 0) grown[c.col * rows + c.row] = 1;
+  }
+  return {
+    cols, rows, grown,
+    cut: new Uint8Array(cols * rows),
+    seen: new Int32Array(cols * rows).fill(-1),
+    stamp: 0,
+    xlo: -0.2, xhi: cols + 1.2, zlo: 0, zhi: rows,
+  };
+}
+
+const inside = (ctx, x, z) => x >= ctx.xlo && x <= ctx.xhi && z >= ctx.zlo && z <= ctx.zhi;
+
+/** Is a whole turning circle about (cx, cz) inside the picture? */
+const roomToTurn = (ctx, cx, cz) => cx >= ctx.xlo + TURN_R && cx <= ctx.xhi - TURN_R
+  && cz >= ctx.zlo + TURN_R && cz <= ctx.zhi - TURN_R;
+
+/**
+ * A pose the mower can get out of. Staying inside the bounds move by move is
+ * not enough: a tractor nose-down at z = 6.5 is inside them and has nowhere to
+ * go, because either way it turns the circle bulges past row 7. So a move may
+ * only *end* somewhere at least one of the two turning circles fits whole,
+ * which is a place the mower can always drive a half circle out of. Hold that
+ * as an invariant from the run-in on and the drive can never box itself in.
+ */
+function loose(ctx, x, z, h) {
+  for (const side of [1, -1]) {
+    if (roomToTurn(ctx, x + TURN_R * Math.cos(h + side * HALF),
+      z + TURN_R * Math.sin(h + side * HALF))) return true;
+  }
+  return false;
+}
+
+/**
+ * What the blade takes at one point of the walk: every grown day inside
+ * PLAN_R of it that this move has not already counted. `stamp` is the move's
+ * own mark, so a candidate counts each day once however long it dwells on it.
+ */
+function bite(ctx, bx, bz, stamp) {
+  const { cols, rows, grown, cut, seen } = ctx;
+  let n = 0;
+  const c0 = Math.max(0, Math.floor(bx - PLAN_R));
+  const c1 = Math.min(cols - 1, Math.floor(bx + PLAN_R));
+  const r0 = Math.max(0, Math.floor(bz - PLAN_R));
+  const r1 = Math.min(rows - 1, Math.floor(bz + PLAN_R));
+  for (let col = c0; col <= c1; col++) {
+    for (let row = r0; row <= r1; row++) {
+      const idx = col * rows + row;
+      if (!grown[idx] || cut[idx] || seen[idx] === stamp) continue;
+      const dx = col + 0.5 - bx;
+      const dz = row + 0.5 - bz;
+      if (dx * dx + dz * dz < PLAN_R * PLAN_R) { seen[idx] = stamp; n++; }
     }
-    leg(out, xr - CORNER_R, zb, xl + CORNER_R, zb, rnd, false);
-    arcTo(out, xl + CORNER_R, zb - CORNER_R, CORNER_R, Math.PI / 2, Math.PI);
-    leg(out, xl, zb - CORNER_R, xl, zt + 2 * CORNER_R, rnd, false);
-    arcTo(out, xl + CORNER_R, zt + 2 * CORNER_R, CORNER_R, Math.PI, Math.PI * 1.5);
-    zt += 1;
-    zb -= 1;
-    xl += 1;
-    xr -= 1;
+  }
+  return n;
+}
+
+/** Is there a day still standing within REACH in front of the blade? */
+function ahead(ctx, bx, bz, ux, uz, stamp) {
+  const { cols, rows, grown, cut, seen } = ctx;
+  const c0 = Math.max(0, Math.floor(bx - REACH));
+  const c1 = Math.min(cols - 1, Math.floor(bx + REACH));
+  const r0 = Math.max(0, Math.floor(bz - REACH));
+  const r1 = Math.min(rows - 1, Math.floor(bz + REACH));
+  for (let col = c0; col <= c1; col++) {
+    for (let row = r0; row <= r1; row++) {
+      const idx = col * rows + row;
+      if (!grown[idx] || cut[idx] || seen[idx] === stamp) continue;
+      const dx = col + 0.5 - bx;
+      const dz = row + 0.5 - bz;
+      if (dx * dx + dz * dz <= REACH * REACH && dx * ux + dz * uz > 0) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Mark what a chosen move really cuts, so the next move sees the gap it left.
+ *
+ * Not the line the planner measured: the cubics that were just emitted, weave
+ * and all, walked with the blade `mowWalk` uses. The planner scores candidates
+ * with a smaller blade on an unweaved line, which is the safe way round for
+ * "will this day get cut" but leaves it hunting days the real blade already
+ * took - which is a quarter of the drive spent mowing cut grass. So the plan
+ * is conservative and the bookkeeping is exact. A hair comes off MOW_RADIUS
+ * because `mowWalk` samples the same curve its own way: whatever this marks,
+ * that has to find too.
+ */
+function takeDrawn(ctx, curve, from) {
+  const { cols, rows, grown, cut } = ctx;
+  const r2 = (MOW_RADIUS - 0.01) * (MOW_RADIUS - 0.01);
+  const dense = [];
+  for (let si = from; si < curve.length; si++) {
+    const sp = curve[si];
+    const rough = dist(sp.a, sp.c1) + dist(sp.c1, sp.c2) + dist(sp.c2, sp.b);
+    const steps = Math.max(4, Math.ceil(rough / FINE));
+    for (let i = dense.length ? 1 : 0; i <= steps; i++) dense.push(bezAt(sp, i / steps));
+  }
+  for (let i = 0; i < dense.length; i++) {
+    const q = dense[i];
+    const t = dense[Math.min(dense.length - 1, i + 1)];
+    const f = dense[Math.max(0, i - 1)];
+    const m = Math.hypot(t.x - f.x, t.z - f.z) || 1;
+    const bx = q.x + ((t.x - f.x) / m) * BLADE_OFFSET;
+    const bz = q.z + ((t.z - f.z) / m) * BLADE_OFFSET;
+    const c0 = Math.max(0, Math.floor(bx - MOW_RADIUS));
+    const c1 = Math.min(cols - 1, Math.floor(bx + MOW_RADIUS));
+    const r0 = Math.max(0, Math.floor(bz - MOW_RADIUS));
+    const r1 = Math.min(rows - 1, Math.floor(bz + MOW_RADIUS));
+    for (let col = c0; col <= c1; col++) {
+      for (let row = r0; row <= r1; row++) {
+        const idx = col * rows + row;
+        if (!grown[idx] || cut[idx]) continue;
+        const dx = col + 0.5 - bx;
+        const dz = row + 0.5 - bz;
+        if (dx * dx + dz * dz < r2) cut[idx] = 1;
+      }
+    }
+  }
+}
+
+// --- one move: an arc onto a line, then the line ---------------------------
+
+/**
+ * The shortest arc-then-straight from the pose to a day, with a free final
+ * heading. `side` picks one of the two turning circles - one TURN_R to the
+ * left of the pose, one to the right - and the mower runs round it until it is
+ * pointing at the day, then drives straight. A day inside the circle it has
+ * chosen cannot be reached that way at all (the tangent does not exist), which
+ * is why both circles are always tried.
+ *
+ * The straight does not stop on the day: it carries on while there is grass
+ * within REACH of the blade, up to `cap`. Everything is sampled every STEP and
+ * checked against the bounds; a move that would take the mower off the picture
+ * is not a move.
+ *
+ * @returns null if that circle cannot get there, or the move and what it cuts.
+ */
+function reach(ctx, pose, tx, tz, side, cap, want) {
+  const cx = pose.x + TURN_R * Math.cos(pose.h + side * HALF);
+  const cz = pose.z + TURN_R * Math.sin(pose.h + side * HALF);
+  const dx = tx - cx;
+  const dz = tz - cz;
+  const d = Math.hypot(dx, dz);
+  if (d <= TURN_R + 1e-9) return null;         // inside this turning circle
+  const line = Math.sqrt(d * d - TURN_R * TURN_R);
+  if (line > cap) return null;
+  // where the mower stands on the circle now, and where it leaves it: the
+  // tangent point is acos(r/d) round from the day, against the sweep
+  const phi0 = pose.h + side * HALF + Math.PI;
+  const phiT = Math.atan2(dz, dx) - side * Math.acos(TURN_R / d);
+  let sweep = side * (phiT - phi0);
+  sweep = ((sweep % TAU) + TAU) % TAU;         // always the short way round
+  if (sweep > MAX_SWEEP) return null;
+  const dir = phiT + side * HALF;
+  const move = {
+    side, cx, cz, phi0, phiT, sweep, dir,
+    sx: cx + TURN_R * Math.cos(phiT),
+    sz: cz + TURN_R * Math.sin(phiT),
+    ux: Math.cos(dir), uz: Math.sin(dir),
+    line, cap, straight: 0, cells: 0, ex: 0, ez: 0, eh: dir,
+  };
+  const stamp = ++ctx.stamp;
+  if (!walkMove(ctx, move, stamp, ctx)) return null;
+  // A day barely outside the circle can end up behind the blade before the
+  // straight even starts. Aiming at a day that does not get cut is a wasted
+  // move and, chosen twice, a stall.
+  if (want !== undefined && ctx.seen[want] !== stamp) return null;
+  return move;
+}
+
+/**
+ * Walk a move, counting what it cuts and finding where it ends. With `bounds`
+ * it also enforces them and says whether the move is legal at all; the same
+ * walk with no bounds is how a chosen move is committed.
+ */
+function walkMove(ctx, move, stamp, bounds) {
+  const { cx, cz, phi0, sweep, side, sx, sz, ux, uz } = move;
+  let cells = 0;
+  // a move with no arc at all - the run-in - has no circle to walk round
+  const steps = sweep > 1e-9 ? Math.max(1, Math.ceil((TURN_R * sweep) / STEP)) : -1;
+  for (let i = 0; i <= steps; i++) {
+    const a = phi0 + side * sweep * (i / steps);
+    const x = cx + TURN_R * Math.cos(a);
+    const z = cz + TURN_R * Math.sin(a);
+    if (bounds && !inside(bounds, x, z)) return false;
+    const h = a + side * HALF;
+    cells += bite(ctx, x + Math.cos(h) * BLADE_OFFSET, z + Math.sin(h) * BLADE_OFFSET, stamp);
+  }
+  const target = move.straight || move.line;   // committing replays the same length
+  let len = 0;
+  // the last length the run could still be stopped at and driven out of
+  let out = bounds && loose(bounds, sx, sz, move.dir) ? 0 : -1;
+  let outCells = cells;
+  for (;;) {
+    let step = STEP;
+    if (target - len > 1e-6) {
+      step = Math.min(STEP, target - len);
+    } else if (bounds) {
+      // past the day it was aimed at: carry on only while there is more grass
+      if (len + STEP > move.cap) break;
+      if (!ahead(ctx, sx + ux * (len + BLADE_OFFSET), sz + uz * (len + BLADE_OFFSET),
+        ux, uz, stamp)) break;
+    } else break;
+    const nl = len + step;
+    const nx = sx + ux * nl;
+    const nz = sz + uz * nl;
+    if (bounds && !inside(bounds, nx, nz)) break;
+    len = nl;
+    cells += bite(ctx, nx + ux * BLADE_OFFSET, nz + uz * BLADE_OFFSET, stamp);
+    if (bounds && loose(bounds, nx, nz, move.dir)) { out = len; outCells = cells; }
+  }
+  if (bounds) {
+    // The blade has to get to the day it was aimed at, and the mower has to be
+    // able to turn where it stops. The blade rides BLADE_OFFSET ahead, so the
+    // run may stop that much short of the day and still have taken it - which
+    // is the only way the four corners of the board ever get cut: a run that
+    // ended on top of the corner cell would have nowhere left to turn.
+    if (out < move.line - BLADE_OFFSET - 1e-6) return false;
+    move.straight = out;
+    move.cells = outCells;
+    move.ex = sx + ux * out;
+    move.ez = sz + uz * out;
+  }
+  return true;
+}
+
+/**
+ * Grass cut, over ground covered, with three thumbs on the scale: a lawn is
+ * mown along its rows more often than across them, a loop right round is worth
+ * doing now and then rather than every move, and a die roll so the arithmetic
+ * never decides a close call the same way twice.
+ */
+function score(move, roll) {
+  let s = move.cells / (TURN_R * move.sweep + move.straight + 1);
+  if (Math.abs(move.uz) < FLAT) s *= FLAT_BONUS;
+  if (move.sweep > BIG_SWEEP) s *= BIG_TURN_COST;
+  return s * (NOISE[0] + NOISE[1] * roll);
+}
+
+/** The arc and the run of a chosen move, as cubics. */
+function emit(out, move, rnd, ctx) {
+  if (move.sweep > 1e-9) {
+    // a couple of degrees is a twitch, not a bend: leave it at run speed and
+    // the clock merges it into the run either side rather than spending two
+    // keys on it
+    arcTo(out, move.cx, move.cz, TURN_R, move.phi0, move.phi0 + move.side * move.sweep,
+      move.sweep > TINY_SWEEP ? 'turn' : 'drive');
+  }
+  if (move.straight > 1e-9) {
+    run(out, move.sx, move.sz, move.dir, move.straight, rnd, true, ctx);
   }
 }
 
 /**
- * Adjacent rows, top to bottom, with an omega turn between them, so the cut
- * stripes grow in order. Pass 0 heads east, so with seven rows the last one
- * does too and parks off the right edge where the loop already holds it.
+ * Nowhere to go: everything still standing is inside both turning circles or
+ * behind a bound. Turn the mower round toward the middle of the board and try
+ * again. A half circle is the first choice and the way out of a corner; the
+ * quarters and the three-quarters are there for a pose the half circle would
+ * take off the picture.
  */
-function serpentine(rows, cols, rnd) {
-  const out = [];
-  for (let r = 0; r < rows; r++) {
-    const z = r + 0.5;
-    const east = r % 2 === 0;
-    const first = r === 0;
-    const last = r === rows - 1;
-    const x0 = first ? ENTRY_X : (east ? 0 : cols);
-    const x1 = last ? (east ? cols + PARK_X : -PARK_X) : (east ? cols : 0);
-    leg(out, x0, z, x1, z, rnd, first);
-    // the pass stops at the board edge and the turn is the overrun: an omega
-    // reaches two cells past it, which is all the room the picture has
-    if (!last) omega(out, x1, z, 1, east ? 1 : -1);
+function recover(out, pose, ctx, rows, rnd) {
+  const want = pose.z < rows / 2 ? 1 : -1;     // curve toward the middle
+  const first = Math.sin(pose.h + HALF) * want > 0 ? 1 : -1;
+  for (const side of [first, -first]) {
+    const cx = pose.x + TURN_R * Math.cos(pose.h + side * HALF);
+    const cz = pose.z + TURN_R * Math.sin(pose.h + side * HALF);
+    // `loose` promised this circle: every pose the drive ends a move on has
+    // one that fits, so there is always a half circle to take
+    if (!roomToTurn(ctx, cx, cz)) continue;
+    const phi0 = pose.h + side * HALF + Math.PI;
+    const a = phi0 + side * Math.PI;
+    arcTo(out, cx, cz, TURN_R, phi0, a, 'turn');
+    const dir = wrap(a + side * HALF);
+    const x = cx + TURN_R * Math.cos(a);
+    const z = cz + TURN_R * Math.sin(a);
+    // and a nudge along the new heading. Without it the next recovery turns
+    // straight back and the mower rocks between two poses until the move cap
+    // stops the whole plan: two half circles about the same circle are a loop,
+    // and a loop is the one thing a planner that must finish cannot do.
+    const len = nudge(ctx, x, z, dir, NUDGE[0] + rnd() * (NUDGE[1] - NUDGE[0]));
+    run(out, x, z, dir, len, rnd, false, ctx);
+    return { x: x + Math.cos(dir) * len, z: z + Math.sin(dir) * len, h: dir };
   }
-  return out;
+  throw new Error('planRoute: the mower is boxed in');
+}
+
+/** How far a straight can go from here before it is out of room, up to `want`. */
+function nudge(ctx, x, z, dir, want) {
+  const ux = Math.cos(dir);
+  const uz = Math.sin(dir);
+  let ok = 0;
+  for (let s = STEP; s <= want + 1e-9; s += STEP) {
+    if (!inside(ctx, x + ux * s, z + uz * s)) break;
+    if (loose(ctx, x + ux * s, z + uz * s, dir)) ok = s;
+  }
+  return ok;
+}
+
+/**
+ * The way out: an arc onto the row it is standing nearest, then straight off
+ * the right edge to where the loop parks it. This run is the other piece
+ * exempt from the bounds - it is meant to leave the picture - so the arc is
+ * judged on the board and the straight is not judged at all.
+ */
+function park(out, pose, ctx, cols, rows) {
+  const zp = Math.min(rows - 1, Math.max(1, pose.z));
+  const tx = cols + PARK_X;
+  let best = null;
+  for (const side of [1, -1]) {
+    const cx = pose.x + TURN_R * Math.cos(pose.h + side * HALF);
+    const cz = pose.z + TURN_R * Math.sin(pose.h + side * HALF);
+    const dx = tx - cx;
+    const dz = zp - cz;
+    const d = Math.hypot(dx, dz);
+    if (d <= TURN_R + 1e-9) continue;
+    const phi0 = pose.h + side * HALF + Math.PI;
+    const phiT = Math.atan2(dz, dx) - side * Math.acos(TURN_R / d);
+    let sweep = side * (phiT - phi0);
+    sweep = ((sweep % TAU) + TAU) % TAU;
+    if (sweep > MAX_SWEEP) continue;
+    // the straightest way out wins: whatever leaves the mower pointing most
+    // nearly east, so it drives off the edge rather than across the legend.
+    // An arc that swings off the board loses to one that does not, whatever
+    // it is pointing at: the last thing the drive should do is climb the day
+    // labels on its way out.
+    const east = Math.abs(wrap(phiT + side * HALF)) + (onBoard(ctx, cx, cz, phi0, side, sweep)
+      ? 0 : TAU);
+    if (!best || east < best.east) {
+      best = { side, cx, cz, phi0, phiT, sweep, east, line: Math.sqrt(d * d - TURN_R * TURN_R) };
+    }
+  }
+  if (!best) return;
+  arcTo(out, best.cx, best.cz, TURN_R, best.phi0, best.phi0 + best.side * best.sweep, 'turn');
+  const dir = best.phiT + best.side * HALF;
+  const sx = best.cx + TURN_R * Math.cos(best.phiT);
+  const sz = best.cz + TURN_R * Math.sin(best.phiT);
+  run(out, sx, sz, dir, best.line, null, false, null);
+}
+
+/** Does an arc keep the mower inside the picture the whole way round? */
+function onBoard(ctx, cx, cz, phi0, side, sweep) {
+  const steps = Math.max(1, Math.ceil((TURN_R * sweep) / STEP));
+  for (let i = 0; i <= steps; i++) {
+    const a = phi0 + side * sweep * (i / steps);
+    if (!inside(ctx, cx + TURN_R * Math.cos(a), cz + TURN_R * Math.sin(a))) return false;
+  }
+  return true;
+}
+
+/** An angle folded into -pi..pi. */
+function wrap(a) {
+  let d = a % TAU;
+  if (d > Math.PI) d -= TAU;
+  if (d < -Math.PI) d += TAU;
+  return d;
 }
 
 // --- the pieces a drive is made of -----------------------------------------
 
 /**
- * One straight leg from (x0, z0) to (x1, z1), along either axis: a chain of
- * cubics between weave knots, each with a tangent along the leg, so the
- * tractor eases from side to side like a hand steering it. The knots alternate
- * either side of the line and the leg starts and ends dead centre, where the
- * turns pick it up. A leg with no room for a full swing is driven straight.
+ * One straight run of `len` cells from (x0, z0) along `ang`: a chain of cubics
+ * between weave knots, each with a tangent along the run, so the tractor eases
+ * from side to side like a hand steering it. The knots alternate either side
+ * of the line and the run starts and ends dead centre, where the arcs pick it
+ * up. A run with no room for a full swing is driven straight, and a knot that
+ * would push the mower off the picture is pulled back onto it. The two runs
+ * that are meant to leave the picture - the run-in and the park run - are
+ * passed no bounds at all.
  */
-function leg(out, x0, z0, x1, z1, rnd, runIn) {
-  // u runs down the leg, v sways across it
-  const horiz = z0 === z1;
-  const u0 = horiz ? x0 : z0;
-  const u1 = horiz ? x1 : z1;
-  const v = horiz ? z0 : x0;
-  const at = (u, dv) => (horiz ? { x: u, z: v + dv } : { x: v + dv, z: u });
-  const dir = Math.sign(u1 - u0);
-  const len = Math.abs(u1 - u0);
-  if (len < 1e-9) return;                 // the innermost ring's columns
-  const knots = [{ u: u0, dv: 0 }];
-  let s = runIn ? RUN_IN : 0;
-  let side = rnd() < 0.5 ? 1 : -1;
-  if (runIn && len > RUN_IN) knots.push({ u: u0 + dir * s, dv: 0 });
-  if (len >= WEAVE_MIN) {
+function run(out, x0, z0, ang, len, rnd, weave, ctx) {
+  if (len < 1e-9) return;
+  const ux = Math.cos(ang);
+  const uz = Math.sin(ang);
+  const knots = [{ s: 0, dv: 0 }];
+  if (weave && len >= WEAVE_MIN) {
+    let s = 0;
+    let side = rnd() < 0.5 ? 1 : -1;
     for (;;) {
       s += WEAVE_LEN[0] + rnd() * (WEAVE_LEN[1] - WEAVE_LEN[0]);
-      // the last knot is the leg end, level again: leave room for a full swing
+      // the last knot is the run's end, level again: leave room for a full swing
       if (s > len - WEAVE_LEN[0]) break;
       const amp = WEAVE_AMP[0] + rnd() * (WEAVE_AMP[1] - WEAVE_AMP[0]);
-      knots.push({ u: u0 + dir * s, dv: side * amp });
+      knots.push({ s, dv: side * amp });
       side = -side;
     }
   }
-  knots.push({ u: u1, dv: 0 });
+  knots.push({ s: len, dv: 0 });
+  const at = (k) => {
+    const x = x0 + ux * k.s - uz * k.dv;
+    const z = z0 + uz * k.s + ux * k.dv;
+    // clamping a knot only ever moves it back toward the line it swings about,
+    // and the handles stay along the run, so the cubic follows it in
+    if (!ctx) return { x, z };
+    return {
+      x: Math.min(ctx.xhi, Math.max(ctx.xlo, x)),
+      z: Math.min(ctx.zhi, Math.max(ctx.zlo, z)),
+    };
+  };
   for (let i = 1; i < knots.length; i++) {
-    const p = knots[i - 1];
-    const q = knots[i];
-    const h = (q.u - p.u) / 3;
+    const p = at(knots[i - 1]);
+    const q = at(knots[i]);
+    const h = (knots[i].s - knots[i - 1].s) / 3;
     out.push({
-      a: at(p.u, p.dv),
-      c1: at(p.u + h, p.dv),
-      c2: at(q.u - h, q.dv),
-      b: at(q.u, q.dv),
+      a: p,
+      c1: { x: p.x + ux * h, z: p.z + uz * h },
+      c2: { x: q.x - ux * h, z: q.z - uz * h },
+      b: q,
       kind: 'drive',
     });
   }
@@ -283,66 +654,6 @@ function arcTo(out, cx, cz, r, a0, a1, kind = 'turn') {
       c2: { x: q.x + k * Math.sin(t1), z: q.z - k * Math.cos(t1) },
       b: q,
       kind,
-    });
-  }
-}
-
-/**
- * The omega (or bulb) turn, the one a tractor makes when the next swath is
- * closer than its turning circle: swing away from it by `a`, round the other
- * way through 180 + 2a, then straighten back by `a`. Three tangent arcs of one
- * radius, and cos a = (shift + 2r) / (4r) makes the net sideways step exactly
- * `shift` - which is why the middle arc's centre lands half a row over.
- *
- * From (x0, z0) heading east (`dir` 1) or west (-1), to (x0, z0 + shift)
- * heading back the other way. Built heading east and shifting +z, then
- * mirrored: the mirror flips a sweep's sign, one axis at a time.
- */
-function omega(out, x0, z0, shift, dir) {
-  const d = Math.abs(shift);
-  const sg = Math.sign(shift);
-  const r = OMEGA_R;
-  const a = Math.acos((d + 2 * r) / (4 * r));
-  const H = Math.PI / 2;
-  const ang = (t) => Math.atan2(sg * Math.sin(t), dir * Math.cos(t));
-  const arc = (cx, cz, t0, sweep) => {
-    const s = ang(t0);
-    arcTo(out, x0 + dir * (cx - x0), z0 + sg * (cz - z0), r, s, s + dir * sg * sweep);
-  };
-  const away = Math.atan2(-Math.cos(a), -Math.sin(a));
-  arc(x0, z0 - r, H, -a);
-  arc(x0 + 2 * r * Math.sin(a), z0 - r + 2 * r * Math.cos(a), away, Math.PI + 2 * a);
-  arc(x0, z0 + d / 2 + 2 * r * Math.cos(a), a - H, -a);
-}
-
-/**
- * One to three times a loop the driver stops for most of a second. A pause is
- * a zero-length span at a weave knot: the same point on the path twice, so the
- * clock advances while the mower does not. Never on the way in and never
- * inside a turn - a tractor that stops mid-U-turn reads as a dropped frame.
- */
-function breathers(curve, rnd) {
-  const spots = [];
-  let turned = false;
-  for (let i = 0; i < curve.length - 1; i++) {
-    if (curve[i].kind !== 'drive') { turned = true; continue; }
-    if (turned && curve[i + 1].kind === 'drive') spots.push(i);
-  }
-  const n = PAUSES[0] + Math.floor(rnd() * (PAUSES[1] - PAUSES[0] + 1));
-  const picked = [];
-  for (let j = 0; j < n; j++) {
-    // one per equal share of the drive, so they never bunch up
-    const lo = Math.floor((j * spots.length) / n);
-    const hi = Math.floor(((j + 1) * spots.length) / n);
-    if (hi > lo) picked.push(spots[lo + Math.floor(rnd() * (hi - lo))]);
-  }
-  // from the back, so the indices still ahead of the splice stay put
-  for (let j = picked.length - 1; j >= 0; j--) {
-    const p = curve[picked[j]].b;
-    curve.splice(picked[j] + 1, 0, {
-      a: { ...p }, c1: { ...p }, c2: { ...p }, b: { ...p },
-      kind: 'pause', speed: 0,
-      secs: PAUSE_SECS[0] + rnd() * (PAUSE_SECS[1] - PAUSE_SECS[0]),
     });
   }
 }
@@ -377,9 +688,8 @@ export function spanLength(sp, steps = 24) {
  * ahead of the mower along the tangent, exactly as `tick()` has it, so the SVG
  * fades a tuft on the frame the drawn mower would have eaten it.
  *
- * `tall` comes out of the same walk: the tallest day each span actually cuts,
- * which is what slows the tractor down. Grass a span drives over that an
- * earlier one already cut is cut grass, and cut grass is no work.
+ * This is the proof, not the plan: the planner works to a smaller blade on the
+ * line it measured, and this walks the curve that is actually drawn.
  */
 function mowWalk(curve, targets, lawn) {
   const cols = lawn.cols;
@@ -391,20 +701,15 @@ function mowWalk(curve, targets, lawn) {
 
   // the whole drive as one dense polyline, so a tangent is just its neighbours
   const dense = [];
-  const owner = [];
   for (let si = 0; si < curve.length; si++) {
     const sp = curve[si];
     const rough = dist(sp.a, sp.c1) + dist(sp.c1, sp.c2) + dist(sp.c2, sp.b);
     const steps = Math.max(4, Math.ceil(rough / FINE));
     // spans share their end point; skip the first of every span but the first
-    for (let i = dense.length ? 1 : 0; i <= steps; i++) {
-      dense.push(bezAt(sp, i / steps));
-      owner.push(si);
-    }
+    for (let i = dense.length ? 1 : 0; i <= steps; i++) dense.push(bezAt(sp, i / steps));
   }
 
   const cuts = new Map();
-  const tall = new Uint8Array(curve.length);
   const r2 = MOW_RADIUS * MOW_RADIUS;
   let s = 0;
 
@@ -429,15 +734,11 @@ function mowWalk(curve, targets, lawn) {
         if (at[idx] < 0 || cuts.has(idx)) continue;
         const ddx = col + 0.5 - bx;
         const ddz = row + 0.5 - bz;
-        if (ddx * ddx + ddz * ddz < r2) {
-          cuts.set(idx, s);
-          const lv = lawn.cells[idx].level;
-          if (lv > tall[owner[i]]) tall[owner[i]] = lv;
-        }
+        if (ddx * ddx + ddz * ddz < r2) cuts.set(idx, s);
       }
     }
   }
 
   const missed = targets.filter((t) => !cuts.has(t.i));
-  return { cuts, length: s, missed, tall };
+  return { cuts, length: s, missed };
 }

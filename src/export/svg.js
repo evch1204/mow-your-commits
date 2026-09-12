@@ -304,9 +304,9 @@ export function lawnToSvg(lawn, opts) {
   // gets an overgrown cover on top that fades when the mower reaches it.
   const route = o.animate && lawn.mowable > 0 ? planRoute(lawn, o.seed) : null;
 
-  // The drive needs more room on the right than the still does: an omega turn
-  // swings two cells past the last column and the mower's nose reaches past
-  // that again. On the left OX = 58 already holds the same excursion.
+  // The drive needs more room on the right than the still does: the mower
+  // parks two and a half cells past the last column and its nose reaches past
+  // that again. On the left OX = 58 already holds the run-in.
   const W = GEOM.OX + cols * PITCH + (route ? ANIM_PAD_R : GEOM.PAD_R);
   const H = GEOM.OY + rows * PITCH + GEOM.PAD_B;
   const gw = cols * PITCH - GAP;
@@ -435,8 +435,8 @@ export function lawnToSvg(lawn, opts) {
       // The driven <g> therefore owns no transform: its parent parks it, the
       // path is relative to that, and rotate="auto" turns it in place. Right,
       // because the mower art faces +x. The keys are the loop's clock: slower
-      // through the U-turns, then held off the right edge for the last stretch
-      // of the loop, the pause before everything regrows.
+      // round every bend, then held off the right edge for the last stretch of
+      // the loop, while the year grows back.
       const drive = `<animateMotion dur="${n2(timing.dur)}s" repeatCount="indefinite"`
         + ` rotate="auto" calcMode="linear" keyPoints="${timing.keyPoints}"`
         + ` keyTimes="${timing.keyTimes}" path="${motionPath(route, m)}"/>`;
@@ -632,7 +632,7 @@ function dressing(lawn, theme, o, seasonOf) {
 const HOLD = 1.6;
 /** How long a tuft takes to vanish once the blade reaches it, as a fraction. */
 const SNAP = 0.004;
-/** The room the drive needs on the right: two cells of omega, plus the nose. */
+/** The room the drive needs on the right: the park run, plus the nose. */
 const ANIM_PAD_R = 64;
 /** Four decimals: what every keyTimes/keyPoints in the picture is written to. */
 const f4 = (v) => v.toFixed(4);
@@ -641,39 +641,45 @@ const TICK = 0.001;
 
 /**
  * One loop: drive the whole route, then hold off the edge while the year
- * regrows. The drive is a chain of legs the mower takes at its own speed -
- * the planner stamps one on every span, slower through the turns and slower
- * again through thick grass - so the loop's clock is piecewise linear in arc
- * length. Spans that share a speed merge into one leg, or a weave knot every
- * four cells would spell the clock out in three hundred keys.
+ * regrows. The drive is a chain of legs the mower takes at one of exactly two
+ * speeds - the planner stamps SPEED on a run and TURN_SPEED on a bend - so the
+ * loop's clock is piecewise linear in arc length. Spans that share a speed
+ * merge into one leg, or a weave knot every four cells would spell the clock
+ * out in a thousand keys; a wander of sixty-odd moves comes to about twice
+ * that many legs.
+ *
+ * The mower never stops. It used to take a breather once or twice a loop and
+ * crawl through the thickest weeks, and both of those read as the picture
+ * hanging rather than as a driver at work (docs/plans/readme-wander.md).
  *
  * `keyPoints`/`keyTimes` spell that clock out for animateMotion; `at()` runs a
  * cut's arc length through the same clock, so a tuft vanishes on the frame the
- * drawn mower reaches it and the tracks reveal in step. A breather is a leg
- * with no length: the same keyPoint twice, with time passing between them.
- * `drive` is where the driving ends, as a fraction of the loop.
+ * drawn mower reaches it and the tracks reveal in step. `drive` is where the
+ * driving ends, as a fraction of the loop.
  */
 function loopTiming(route) {
+  // Two keys that round to the same fraction of the path are a mower standing
+  // still for a frame, which is the one thing this drive must not do, so a
+  // span too short to earn a key of its own joins the leg in front of it
+  // whatever its speed. Half a ten-thousandth of the drive is a fifth of a
+  // cell on the demo year, and four decimals is what the keys are written to.
+  const floor = route.length * 0.0005;
   const legs = [];
   for (const sp of route.curve) {
-    if (sp.kind === 'pause') { legs.push({ len: 0, secs: sp.secs, stop: true }); continue; }
     const len = spanLength(sp);
     const last = legs[legs.length - 1];
-    if (last && !last.stop && last.speed === sp.speed) last.len += len;
-    else legs.push({ len, speed: sp.speed, stop: false });
+    if (last && (last.speed === sp.speed || len < floor)) last.len += len;
+    else legs.push({ len, speed: sp.speed });
   }
   const total = legs.reduce((s, l) => s + l.len, 0);
-  const secs = (l) => (l.stop ? l.secs : l.len / l.speed);
-  const dur = legs.reduce((s, l) => s + secs(l), 0) + HOLD;
+  const dur = legs.reduce((s, l) => s + l.len / l.speed, 0) + HOLD;
   const arcs = [0];
   const times = [0];
-  const stops = [];
   let s = 0;
   let t = 0;
   for (const l of legs) {
-    if (l.stop) stops.push(arcs.length - 1);
     s += l.len;
-    t += secs(l);
+    t += l.len / l.speed;
     arcs.push(s / total);
     times.push(t / dur);
   }
@@ -694,29 +700,9 @@ function loopTiming(route) {
     dur, drive, at,
     // arc length in cells at every key, for anything measured along the path
     cells: kp.map((f) => f * route.length),
-    // when the mower stands still, as fractions of the loop
-    pauses: stops.map((i) => [kt[i], kt[i + 1]]),
     keyPoints: [...kp.map(f4), '1'].join(';'),
     keyTimes: [...kt.map(f4), '1'].join(';'),
   };
-}
-
-/**
- * A `values`/`keyTimes` pair that is `1` all loop except inside each window,
- * where it drops to 0. Windows arrive in order and never touch; the switch
- * either side of one is a TICK wide, which is a frame and a half at 50 s.
- */
-function windows(shut, dur) {
-  const values = ['1'];
-  const times = ['0'];
-  for (const [a, b] of shut) {
-    values.push('1', '0', '0', '1');
-    times.push(f4(a), f4(a + TICK), f4(b), f4(b + TICK));
-  }
-  values.push('1');
-  times.push('1');
-  return `<animate attributeName="opacity" values="${values.join(';')}"`
-    + ` keyTimes="${times.join(';')}" dur="${n2(dur)}s" repeatCount="indefinite"/>`;
 }
 
 /**
@@ -800,12 +786,10 @@ function mowerFx(timing, theme) {
   }
   const gate = loop('opacity', '1;1;0;0',
     `0;${f4(timing.drive)};${f4(timing.drive + 0.002)};1`, n2(timing.dur));
-  // Nothing is being cut while the mower stands, so nothing comes out of the
-  // chute. The exhaust keeps puffing and the blade keeps spinning: it is a
-  // breather, not a stall.
-  const still = windows(timing.pauses, timing.dur);
-  return `<g opacity="1">${gate}${puffs.join('')}`
-    + `<g opacity="1">${still}${clippings.join('')}</g></g>`;
+  // The mower never stands still on the board any more, so the chute never
+  // stops throwing: one gate, on the hold off the right edge, is the whole of
+  // it.
+  return `<g opacity="1">${gate}${puffs.join('')}${clippings.join('')}</g>`;
 }
 
 /**
@@ -937,9 +921,7 @@ function routeStart(route) {
  * The route as one `M0 0 C ...` path in page pixels, relative to the start:
  * animateMotion composes with the `transform` on the same element, so the
  * static translate doubles as the fallback position and the path must not
- * repeat it. One cubic per span, straight out of the planner - bar the
- * breathers, which have no length: keyPoints are fractions of the path, so a
- * stop is two keys at the same fraction and nothing to draw between them.
+ * repeat it. One cubic per span, straight out of the planner.
  */
 function motionPath(route, start) {
   const X = (x) => n2(px(x) - start.x);
@@ -947,7 +929,6 @@ function motionPath(route, start) {
   const first = route.curve[0].a;
   const out = [`M${X(first.x)} ${Y(first.z)}`];
   for (const sp of route.curve) {
-    if (sp.kind === 'pause') continue;
     out.push(`C${X(sp.c1.x)} ${Y(sp.c1.z)} ${X(sp.c2.x)} ${Y(sp.c2.z)} ${X(sp.b.x)} ${Y(sp.b.z)}`);
   }
   return out.join('');

@@ -11,7 +11,7 @@ import {
   GRASS, grassFor, tileColor, bladeColor, cellTint, hexToRgb, mix, SEASON_TINT,
   DANDELION, GITHUB, BARE, NO_SEASON,
 } from '../src/core/palette.js';
-import { planRoute, bezAt } from '../src/core/route.js';
+import { planRoute, bezAt, spanLength } from '../src/core/route.js';
 import { GEOM } from '../src/core/board.js';
 import { lawnToSvg } from '../src/export/svg.js';
 import { THEMES } from '../src/export/themes.js';
@@ -1014,60 +1014,162 @@ ok('the route is deterministic for a seed',
   JSON.stringify(planRoute(svgLawn, 7).waypoints) === JSON.stringify(route.waypoints));
 ok('a different seed drives a different route',
   JSON.stringify(planRoute(svgLawn, 8).waypoints) !== JSON.stringify(route.waypoints));
-// long enough to cover a 7-row field with a 1.34-cell swath, short enough to
-// be one pass per row plus the turns: the drive covers the board once, however
-// many days grew, and never doubles back for stragglers. The spiral overlaps
-// itself a little where the rings meet, the serpentine's omegas swing wide.
-const strategies = new Set();
-for (let seed = 1; seed <= 12; seed++) {
-  const r = planRoute(svgLawn, seed);
-  strategies.add(r.strategy);
-  if (r.cuts.size !== mowable.length
-    || !(r.length > ROWS * svgLawn.cols && r.length < ROWS * svgLawn.cols * 1.35)) {
-    strategies.add(`seed ${seed}: ${r.strategy} ${r.length.toFixed(1)} / ${r.cuts.size}`);
-  }
-}
-ok('both ways to mow turn up in the first dozen seeds, and both cut the year',
-  strategies.size === 2 && strategies.has('spiral') && strategies.has('rows'),
-  [...strategies].join(', '));
-// the frontier is the whole point: nothing may be left standing behind the
-// mower for long, so the drive cuts at a steady rate rather than in bursts
-let ragged = 0;
-for (let k = 1; k <= 10; k++) {
-  const at = [...route.cuts.values()].filter((v) => v <= (k / 10) * route.length).length;
-  if (Math.abs(at / route.cuts.size - k / 10) > 0.12) ragged++;
-}
-ok('the route cuts at a steady rate down the year', ragged === 0, `${ragged} of 10 deciles`);
 ok('the route drives off the right edge',
   route.waypoints[route.waypoints.length - 1].x > svgLawn.cols,
   String(route.waypoints[route.waypoints.length - 1].x));
 ok('the route starts off the left edge', route.waypoints[0].x < 0);
-// no hairpins: rotate="auto" swings the drawn mower round every bend, so the
-// tightest bend anywhere on the drive has to be a real U-turn, a cell across
-let sharpest = 0;
-for (const sp of route.curve) {
-  let p = bezAt(sp, 0);
-  let h = null;
-  for (let i = 1; i <= 40; i++) {
-    const q = bezAt(sp, i / 40);
-    const ds = Math.hypot(q.x - p.x, q.z - p.z);
-    const a = Math.atan2(q.z - p.z, q.x - p.x);
-    if (h !== null && ds > 1e-6) {
-      let d = a - h;
-      while (d > Math.PI) d -= Math.PI * 2;
-      while (d < -Math.PI) d += Math.PI * 2;
-      sharpest = Math.max(sharpest, Math.abs(d) / ds);
+ok('planning never touches the lawn', JSON.stringify(svgLawn) === before);
+
+/**
+ * Everything the shape of a drive has to be, measured off one route. The plan
+ * for it is docs/plans/readme-wander.md: a mower roaming the board, turning
+ * wherever the grass is, never pausing, never sitting on the day labels, and
+ * always finishing.
+ *
+ * A "run" is a stretch of drive spans between two bends - the weave splits one
+ * into a handful of cubics, so they are added back up - and an "arc" is a
+ * stretch of turn spans, however many quarter-circle cubics it took.
+ */
+function shapeOf(r, lawn) {
+  const runs = [];
+  const arcs = [];
+  let run = 0;
+  let arc = null;
+  for (const sp of r.curve) {
+    if (sp.kind === 'drive') {
+      if (arc) { arcs.push(arc); arc = null; }
+      run += spanLength(sp);
+      continue;
     }
-    h = a;
-    p = q;
+    if (run > 0) { runs.push(run); run = 0; }
+    // the tangents at a cubic's ends are its handles, and an arc's are never
+    // zero length, so the turn is the angle between the first and the last
+    const h0 = Math.atan2(sp.c1.z - sp.a.z, sp.c1.x - sp.a.x);
+    const h1 = Math.atan2(sp.b.z - sp.c2.z, sp.b.x - sp.c2.x);
+    let d = h1 - h0;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    if (arc) arc.turn += d;
+    else arc = { x: sp.a.x, turn: d };
+  }
+  if (arc) arcs.push(arc);
+  if (run > 0) runs.push(run);
+  const sorted = [...runs].sort((a, b) => a - b);
+
+  // no hairpins: rotate="auto" swings the drawn mower round every bend, so the
+  // tightest bend anywhere on the drive has to be a real turn, a cell across
+  let sharpest = 0;
+  for (const sp of r.curve) {
+    let p = bezAt(sp, 0);
+    let h = null;
+    for (let i = 1; i <= 40; i++) {
+      const q = bezAt(sp, i / 40);
+      const ds = Math.hypot(q.x - p.x, q.z - p.z);
+      const a = Math.atan2(q.z - p.z, q.x - p.x);
+      if (h !== null && ds > 1e-6) {
+        let d = a - h;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        sharpest = Math.max(sharpest, Math.abs(d) / ds);
+      }
+      h = a;
+      p = q;
+    }
+  }
+
+  // The mower's centre, every tenth of a cell, has to stay off the month
+  // labels above, the legend below and the Mon/Wed/Fri column on the left. The
+  // run-in and the park run are the two exceptions and are meant to be: the
+  // mower is off the picture at both ends, which is where the loop hides the
+  // join. A tenth of a pixel of slack, because a quarter-circle drawn as a
+  // cubic sits a few ten-thousandths outside the circle it stands for.
+  let stray = '';
+  for (let i = 1; i < r.curve.length - 1 && !stray; i++) {
+    const sp = r.curve[i];
+    const n = Math.max(4, Math.ceil(spanLength(sp) / 0.1));
+    for (let k = 0; k <= n; k++) {
+      const p = bezAt(sp, k / n);
+      if (p.x < -0.21 || p.x > lawn.cols + 1.21 || p.z < -0.01 || p.z > lawn.rows + 0.01) {
+        stray = `${p.x.toFixed(2)},${p.z.toFixed(2)}`;
+        break;
+      }
+    }
+  }
+
+  return {
+    cuts: r.cuts.size,
+    length: r.length,
+    // a heading change of 60 degrees or more, begun with the mower on the board
+    onBoard: arcs.filter((a) => Math.abs(a.turn) >= Math.PI / 3
+      && a.x >= 1 && a.x <= lawn.cols - 1).length,
+    runs: runs.length,
+    median: sorted[Math.floor(sorted.length / 2)],
+    wide: runs.filter((v) => v >= 0.8 * lawn.cols).length,
+    minR: 1 / sharpest,
+    stray,
+    speeds: new Set(r.curve.map((sp) => sp.speed)).size,
+    kinds: new Set(r.curve.map((sp) => sp.kind)),
+  };
+}
+
+const drives = [];
+for (let seed = 1; seed <= 12; seed++) drives.push(shapeOf(planRoute(svgLawn, seed), svgLawn));
+const worstOf = (pick) => drives.map(pick).reduce((a, b) => (a > b ? a : b));
+const bestOf = (pick) => drives.map(pick).reduce((a, b) => (a < b ? a : b));
+
+ok('every seed of the first dozen cuts the whole year',
+  drives.every((s) => s.cuts === mowable.length),
+  drives.map((s) => s.cuts).join(','));
+// A wander doubles back and turns on the board, so it is a longer drive than
+// seven passes down the rows were - but it is still a mow, not a scribble.
+ok('a wander is under two laps of the board',
+  worstOf((s) => s.length) < 2.2 * ROWS * svgLawn.cols,
+  worstOf((s) => s.length).toFixed(0));
+// the whole complaint about the old drive: it only ever turned off the ends of
+// the rows, on top of the day labels. Now the turns are where the grass is.
+ok('the mower turns wherever the grass is, not just at the ends',
+  bestOf((s) => s.onBoard) >= 10, `fewest ${bestOf((s) => s.onBoard)} on-board turns`);
+ok('runs are neither stripes nor a stutter of hops',
+  bestOf((s) => s.median) >= 5 && worstOf((s) => s.median) <= 18
+    && drives.every((s) => s.wide * 3 <= s.runs),
+  drives.map((s) => `${s.median.toFixed(1)}/${s.wide}of${s.runs}`).join(' '));
+ok('the route never turns tighter than a one-cell circle',
+  bestOf((s) => s.minR) >= 0.85, `min radius ${bestOf((s) => s.minR).toFixed(2)} cells`);
+ok('every turn and pass keeps the mower off the labels and out of the margins',
+  drives.every((s) => !s.stray), drives.map((s) => s.stray).filter(Boolean).join(' '));
+// two speeds and nothing else: the breathers and the crawl through thick grass
+// read as the picture hanging, so they are gone
+ok('the mower has two speeds and never stands still',
+  drives.every((s) => s.speeds === 2 && s.kinds.size === 2
+    && s.kinds.has('drive') && s.kinds.has('turn')),
+  drives.map((s) => s.speeds + '/' + [...s.kinds].join('+')).join(' '));
+ok('the wander is the only way to mow now',
+  planRoute(svgLawn, 3).strategy === 'wander');
+
+// It has to finish on a real account's year too, and on the worst case the
+// Action can hand it: every day at level 4, so the blade never gets a free
+// cell, and an account with nothing to mow at all.
+const denseDays = gridForRolling().dates.map((d) => ({ date: isoDay(d), count: 40, level: 4 }));
+const denseLawn = createLawn(denseDays, { year: null });
+const otherLawns = {
+  torvalds: createLawn(daysForRolling(gh.days), { year: null }),
+  ghost: createLawn(daysForRolling(ghost.days), { year: null }),
+  dense: denseLawn,
+};
+const unfinished = [];
+for (const [name, l] of Object.entries(otherLawns)) {
+  const want = l.cells.filter((c) => !c.void && c.level > 0).length;
+  for (let seed = 1; seed <= 6; seed++) {
+    try {
+      const r = planRoute(l, seed);
+      if (r.cuts.size !== want) unfinished.push(`${name}/${seed}: ${r.cuts.size} of ${want}`);
+    } catch (e) {
+      unfinished.push(`${name}/${seed}: ${e.message}`);
+    }
   }
 }
-// the omega turn is the tightest thing on either drive, at 0.9 cells
-ok('the route never turns tighter than the omega', sharpest < 1 / 0.85,
-  `min radius ${(1 / sharpest).toFixed(2)} cells`);
-ok('the route slows through more than one turn',
-  route.curve.filter((sp) => sp.kind === 'turn').length >= 2 * (ROWS - 1));
-ok('planning never touches the lawn', JSON.stringify(svgLawn) === before);
+ok('a real year, an empty one and an all-level-4 one all get finished',
+  unfinished.length === 0, unfinished.join('; '));
 
 const animSvg = lawnToSvg(svgLawn, { animate: true });
 ok('animate drives the mower along the route', animSvg.includes('<animateMotion'));
@@ -1123,23 +1225,32 @@ ok('animateMotion keyPoints and keyTimes line up',
   kp.length === kts.length && kp[0] === 0 && kp[kp.length - 1] === 1
   && kts[0] === 0 && kts[kts.length - 1] === 1 && kts[1] > 0 && kts[1] < 1,
   motion.slice(0, 120));
-// a breather is the same place on the path twice with time passing between:
-// keyPoints repeat where keyTimes must not, which is the one shape of key list
-// SMIL is happy with and a careless "strictly increasing" fix would break
-const held = kp.map((v, i) => i > 0 && v === kp[i - 1] && kts[i] > kts[i - 1]).filter(Boolean);
-ok('the mower stops for a breather without stopping the clock',
-  held.length >= 1 && route.curve.some((sp) => sp.kind === 'pause'),
-  `${held.length} held keys, ${route.curve.filter((sp) => sp.kind === 'pause').length} spans`);
-// the loop has to come round while somebody is still looking at it
-ok('the loop is between 40 and 55 seconds',
-  Number(/dur="([\d.]+)s"/.exec(motion)[1]) > 40 && Number(/dur="([\d.]+)s"/.exec(motion)[1]) < 55,
-  /dur="([\d.]+)s"/.exec(motion)[1]);
-// The omega turns swing two cells past the board, so the picture has to hold
-// the whole drive, mower and all: 17 px is half the drawn rig, so the centre
-// staying that far in keeps it in frame. The two ends are the exception and
-// are meant to be: the mower runs in from off the left edge and parks off the
-// right, and it is off the picture at both, which is where the loop hides the
-// join. So the check runs from the first sample on the board to the last.
+// The mower never stands still on the board now, so the path never holds: the
+// only repeated keyPoint in the whole clock is the last one, the hold off the
+// right edge while the year grows back. A breather anywhere else would be two
+// keys at the same fraction of the path, which is exactly what came out as
+// "it occasionally gets stuck".
+ok('the mower only ever stands still parked off the edge',
+  kp.every((v, i) => i === 0 || i === kp.length - 1 || v > kp[i - 1])
+    && kp[kp.length - 1] === kp[kp.length - 2] && kts[kts.length - 1] > kts[kts.length - 2],
+  `${kp.length} keys`);
+ok('the clock stays short enough to read', kp.length <= 300, `${kp.length} keys`);
+// the loop has to come round while somebody is still looking at it, on every
+// seed: a wander is a longer drive than seven passes were
+const durs = [];
+for (let seed = 1; seed <= 12; seed++) {
+  const m = /<animateMotion\s([^>]*)\/>/.exec(lawnToSvg(svgLawn, { animate: true, seed }))[1];
+  durs.push(Number(/dur="([\d.]+)s"/.exec(m)[1]));
+}
+ok('the loop is between 45 and 65 seconds on every seed',
+  Math.min(...durs) >= 45 && Math.max(...durs) <= 65,
+  `${Math.min(...durs).toFixed(1)}..${Math.max(...durs).toFixed(1)}`);
+// The same bound again, but in page pixels against the viewBox the exporter
+// chose: 17 px is half the drawn rig, so the centre staying that far in keeps
+// it in frame. The two ends are the exception and are meant to be: the mower
+// runs in from off the left edge and parks off the right, and it is off the
+// picture at both, which is where the loop hides the join. So the check runs
+// from the first sample on the board to the last.
 const [, , frameW] = /viewBox="([^"]*)"/.exec(animSvg)[1].split(' ').map(Number);
 const frameH = Number(/viewBox="([^"]*)"/.exec(animSvg)[1].split(' ')[3]);
 let strayed = '';
@@ -1181,8 +1292,6 @@ ok('the animated demo svg stays under 600 kB', animSvg.length < 600000,
 // Action is every day at level 4, which is one cover per cell carrying the
 // biggest silhouette in the grammar: ~825 kB today. Cap it where a README
 // embed is still reasonable, and where a costlier hedge would trip.
-const denseDays = gridForRolling().dates.map((d) => ({ date: isoDay(d), count: 40, level: 4 }));
-const denseLawn = createLawn(denseDays, { year: null });
 ok('the dense lawn really is dense',
   denseLawn.mowable === COLS * ROWS && denseLawn.cells.every((c) => c.level === 4),
   `${denseLawn.mowable} of ${COLS * ROWS}`);

@@ -62,12 +62,20 @@ Two renderers share one model:
 - `src/loader.js` — the username form, its states, the `?user=` param, the token box.
 - `src/core/route.js` — `planRoute(lawn, seed)`: the one drive that mows every grown
   day, as waypoints, one cubic per span (each tagged `drive` or `turn`), and the arc
-  length at which each cell is cut. It is what a person does with a mower: a pass down
-  each row with a gentle hand-drawn weave, a round one-cell U-turn off the edge between
-  passes, rows taken evens then odds so the turns stay round (plus one wide loop back up
-  the left edge), seven passes ending on the right. It used to be a greedy tour, which
-  drawn on the board was a scribble of hairpins (`docs/plans/readme-motion.md`). Only
-  the animated export uses it, but it is pure core: no DOM, no dependencies.
+  length at which each cell is cut. The mower **wanders**: from wherever it is standing
+  it works out the arc-then-straight onto every day still growing, and takes whichever
+  cuts the most grass for the least driving, with a die roll on top. Every run is cut
+  off at a length drawn fresh for that move (5 to 18 cells), so it turns in the middle
+  of the board to go and find grass elsewhere rather than mowing a row end to end; every
+  turn is a real one-cell circle that has to begin and finish inside the picture, which
+  is what keeps the tractor off the month labels, the legend and the Mon/Wed/Fri column;
+  and it never pauses and never slows except round a bend (two speeds, `SPEED` and
+  `TURN_SPEED`). It plans against a blade a little smaller than the real one and books
+  what it cut off the cubics it actually emitted, so `mowWalk` at the end can only find
+  more — a route with a day left standing throws. It has been a greedy tour of hairpins
+  and a spiral-or-stripes pair before now (`docs/plans/readme-motion.md`,
+  `docs/plans/readme-drive.md`, `docs/plans/readme-wander.md`). Only the animated export
+  uses it, but it is pure core: no DOM, no dependencies.
 - `src/export/` — `lawnToSvg(lawn, opts)`, a pure function that draws the 2D board as SVG
   from the same geometry and palette. Used by the page's download buttons and by the
   GitHub Action. `svg.js`, `themes.js` and `font.js` touch no DOM and have no
@@ -219,14 +227,17 @@ chrome --headless=new --disable-gpu --hide-scrollbars --window-size=1100,320 \
   --virtual-time-budget=2000 --screenshot=t20.png "file:///.../harness.html#20"
 ```
 
-Shoot t = 0 (nothing cut), a third, two thirds, one second before the drive ends
-(everything cut, mower leaving) and inside the hold (mower off-frame). The loop length is
-in the `dur` of the `<animateMotion>`, and the drive ends at its second `keyTimes` value.
+Shoot t = 0 (nothing cut), a turn out in the middle of the board, a third, two thirds, one
+second before the drive ends (everything cut, mower leaving) and inside the hold (mower
+off-frame). The loop length is in the `dur` of the `<animateMotion>`, and the drive ends at
+its second-to-last `keyTimes` value. Under `--demo --seed N` the lawn is the fake year for
+that same N, not the default demo one, so rebuild the route from
+`createLawn(null, { seed: N })` when you work out which second to shoot.
 
 ## Ideas
 
-- [x] the animated README lawn mows the whole year, in passes with round turns, leaving
-      tyre tracks, exhaust and clippings like the game
+- [x] the animated README lawn wanders the whole year, turning wherever the grass is,
+      leaving tyre tracks, exhaust and clippings like the game
 - [x] the picture sits on GitHub's own background, in whichever theme the reader is on,
       and the nightly run mows a route nobody has seen before
 - [ ] a hosted image URL (`/lawn.svg?user=`) for a one-line README embed
