@@ -982,12 +982,22 @@ ok('the route is deterministic for a seed',
   JSON.stringify(planRoute(svgLawn, 7).waypoints) === JSON.stringify(route.waypoints));
 ok('a different seed drives a different route',
   JSON.stringify(planRoute(svgLawn, 8).waypoints) !== JSON.stringify(route.waypoints));
-// long enough to cover a 7-row field with a 1.34-cell swath, short enough that
-// one pass per row plus the turns off each edge: the drive covers the board
-// once, however many days grew, and never doubles back for stragglers
-ok('the route is one pass per row plus turns',
-  route.length > ROWS * svgLawn.cols && route.length < ROWS * svgLawn.cols * 1.3,
-  `${route.length.toFixed(1)} for ${ROWS} x ${svgLawn.cols}`);
+// long enough to cover a 7-row field with a 1.34-cell swath, short enough to
+// be one pass per row plus the turns: the drive covers the board once, however
+// many days grew, and never doubles back for stragglers. The spiral overlaps
+// itself a little where the rings meet, the serpentine's omegas swing wide.
+const strategies = new Set();
+for (let seed = 1; seed <= 12; seed++) {
+  const r = planRoute(svgLawn, seed);
+  strategies.add(r.strategy);
+  if (r.cuts.size !== mowable.length
+    || !(r.length > ROWS * svgLawn.cols && r.length < ROWS * svgLawn.cols * 1.35)) {
+    strategies.add(`seed ${seed}: ${r.strategy} ${r.length.toFixed(1)} / ${r.cuts.size}`);
+  }
+}
+ok('both ways to mow turn up in the first dozen seeds, and both cut the year',
+  strategies.size === 2 && strategies.has('spiral') && strategies.has('rows'),
+  [...strategies].join(', '));
 // the frontier is the whole point: nothing may be left standing behind the
 // mower for long, so the drive cuts at a steady rate rather than in bursts
 let ragged = 0;
@@ -1020,7 +1030,8 @@ for (const sp of route.curve) {
     p = q;
   }
 }
-ok('the route never turns tighter than a one-cell radius', sharpest < 1.05,
+// the omega turn is the tightest thing on either drive, at 0.9 cells
+ok('the route never turns tighter than the omega', sharpest < 1 / 0.85,
   `min radius ${(1 / sharpest).toFixed(2)} cells`);
 ok('the route slows through more than one turn',
   route.curve.filter((sp) => sp.kind === 'turn').length >= 2 * (ROWS - 1));
@@ -1030,11 +1041,11 @@ const animSvg = lawnToSvg(svgLawn, { animate: true });
 ok('animate drives the mower along the route', animSvg.includes('<animateMotion'));
 ok('animate loops forever', animSvg.includes('repeatCount="indefinite"'));
 ok('the still animates nothing', !svg.includes('<animate'));
-// the covers sit between the tracks and the mower; the mower's own exhaust and
+// the covers sit between the tracks and the seeds; the mower's own exhaust and
 // clippings fade too, so the count is taken inside the cover group alone
 const coverFades = (s) => {
   const from = s.indexOf('<g id="cover"');
-  const to = s.indexOf('<g id="mower"');
+  const to = s.indexOf('<g id="', from + 1);
   return (s.slice(from, to).match(/<animate attributeName="opacity"/g) || []).length;
 };
 ok('one regrowing cover per grown cell of the whole year',
@@ -1042,15 +1053,19 @@ ok('one regrowing cover per grown cell of the whole year',
 ok('the mower leaves tyre tracks on the loop',
   animSvg.includes('<mask id="ruts"') && animSvg.includes('<rect id="tracks"')
   && animSvg.indexOf('<rect id="tracks"') < animSvg.indexOf('<g id="cover"'));
-ok('the blade spins and the chute throws clippings on the loop',
-  (animSvg.match(/<animateTransform /g) || []).length === 1 + 2 * 5);
+// the blade, five clippings with a spin and a throw each, the engine bob, and
+// a scale + a drift on every dandelion that goes off (at most SEED_MAX of them)
+const heroic = Math.min(24, svgLawn.cells.filter((c) => !c.void && c.heroic).length);
+ok('the blade spins, the chute throws, the engine shakes, the dandelions burst',
+  (animSvg.match(/<animateTransform /g) || []).length === 1 + 2 * 5 + 1 + 2 * heroic,
+  `${(animSvg.match(/<animateTransform /g) || []).length} with ${heroic} heroic days`);
 ok('the still leaves no tracks and throws nothing', !svg.includes('id="ruts"')
   && !svg.includes('<animateTransform'));
 // SMIL drops a whole <animate> whose keyTimes are not strictly increasing, and
 // the last cell is cut a hair before the drive ends, so this is easy to get wrong.
 let smilOk = true;
 let smilWhy = '';
-for (const el of animSvg.matchAll(/<animate\s([^>]*)\/>/g)) {
+for (const el of animSvg.matchAll(/<animate(?:Transform)?\s([^>]*)\/>/g)) {
   const kt = /keyTimes="([^"]*)"/.exec(el[1]);
   const vs = /values="([^"]*)"/.exec(el[1]);
   if (!kt || !vs) { smilOk = false; smilWhy = 'no keyTimes/values'; break; }
@@ -1076,6 +1091,37 @@ ok('animateMotion keyPoints and keyTimes line up',
   kp.length === kts.length && kp[0] === 0 && kp[kp.length - 1] === 1
   && kts[0] === 0 && kts[kts.length - 1] === 1 && kts[1] > 0 && kts[1] < 1,
   motion.slice(0, 120));
+// a breather is the same place on the path twice with time passing between:
+// keyPoints repeat where keyTimes must not, which is the one shape of key list
+// SMIL is happy with and a careless "strictly increasing" fix would break
+const held = kp.map((v, i) => i > 0 && v === kp[i - 1] && kts[i] > kts[i - 1]).filter(Boolean);
+ok('the mower stops for a breather without stopping the clock',
+  held.length >= 1 && route.curve.some((sp) => sp.kind === 'pause'),
+  `${held.length} held keys, ${route.curve.filter((sp) => sp.kind === 'pause').length} spans`);
+// the loop has to come round while somebody is still looking at it
+ok('the loop is between 40 and 55 seconds',
+  Number(/dur="([\d.]+)s"/.exec(motion)[1]) > 40 && Number(/dur="([\d.]+)s"/.exec(motion)[1]) < 55,
+  /dur="([\d.]+)s"/.exec(motion)[1]);
+// The omega turns swing two cells past the board and the entry runs in from
+// off the left edge; the picture has to hold all of it, mower and all. 17 px
+// is half the drawn rig, so the centre staying that far in keeps it in frame.
+const [, , frameW] = /viewBox="([^"]*)"/.exec(animSvg)[1].split(' ').map(Number);
+const frameH = Number(/viewBox="([^"]*)"/.exec(animSvg)[1].split(' ')[3]);
+let strayed = '';
+for (let seed = 1; seed <= 12 && !strayed; seed++) {
+  for (const sp of planRoute(svgLawn, seed).curve) {
+    for (let i = 0; i <= 24; i++) {
+      const p = bezAt(sp, i / 24);
+      const x = GEOM.OX + p.x * GEOM.PITCH - GEOM.GAP / 2;
+      const y = GEOM.OY + p.z * GEOM.PITCH - GEOM.GAP / 2;
+      if (x < 17 || x > frameW - 17 || y < GEOM.OY - 30 || y > frameH - 40) {
+        strayed = `seed ${seed}: ${x.toFixed(1)},${y.toFixed(1)}`;
+        break;
+      }
+    }
+  }
+}
+ok('the mower never drives out of the picture', strayed === '', strayed);
 ok('the motion path is relative to the parked mower', /path="M0 0C/.test(motion));
 ok('the driven group carries no transform of its own',
   // animateMotion's matrix wraps around the element's own transform, so a

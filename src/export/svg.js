@@ -14,7 +14,7 @@ import { GEOM } from '../core/board.js';
 import { planRoute, spanLength } from '../core/route.js';
 import { Z, grassOps } from '../core/grass.js';
 import {
-  ORANGE, CREAM, SUN, PETAL, DANDELION, NO_SEASON, tileColor, mix, stripe,
+  ORANGE, CREAM, SUN, PETAL, DANDELION, FLUFF, NO_SEASON, tileColor, mix, stripe,
 } from '../core/palette.js';
 import { themeFor } from './themes.js';
 import { PATRICK_HAND_WOFF2_B64, FONT_STACK } from './font.js';
@@ -280,16 +280,20 @@ export function lawnToSvg(lawn, opts) {
   const theme = o.theme;
   const cols = lawn.cols;
   const rows = lawn.rows;
-  const W = GEOM.OX + cols * PITCH + GEOM.PAD_R;
+
+  // The animated loop mows the whole year, so every grown day is drawn cut and
+  // gets an overgrown cover on top that fades when the mower reaches it.
+  const route = o.animate && lawn.mowable > 0 ? planRoute(lawn, o.seed) : null;
+
+  // The drive needs more room on the right than the still does: an omega turn
+  // swings two cells past the last column and the mower's nose reaches past
+  // that again. On the left OX = 58 already holds the same excursion.
+  const W = GEOM.OX + cols * PITCH + (route ? ANIM_PAD_R : GEOM.PAD_R);
   const H = GEOM.OY + rows * PITCH + GEOM.PAD_B;
   const gw = cols * PITCH - GAP;
   // seasons are what `weather=0` switches off, so every season index in the
   // picture comes through here and nothing else has to know about the flag
   const seasonOf = (col) => (o.weather ? seasonIndexOfCol(lawn, col) : NO_SEASON);
-
-  // The animated loop mows the whole year, so every grown day is drawn cut and
-  // gets an overgrown cover on top that fades when the mower reaches it.
-  const route = o.animate && lawn.mowable > 0 ? planRoute(lawn, o.seed) : null;
 
   const mowedX = mowedFor(lawn, o, route, cols);
 
@@ -385,6 +389,12 @@ export function lawnToSvg(lawn, opts) {
   // 8b. the overgrown lawn the animated mower cuts away, cell by cell
   if (route) parts.push(coverGroup(lawn, theme, o, route, timing, seasonOf));
 
+  // 8c. a dandelion clock bursts when the blade takes the top of it
+  if (route) {
+    const seeds = seedGroup(lawn, theme, route, timing);
+    if (seeds) parts.push(seeds);
+  }
+
   // 9. mower. The outer <g> parks it: the still position, or the start of the
   // route, which is also the fallback for anything that ignores SMIL.
   if (o.mower) {
@@ -392,7 +402,8 @@ export function lawnToSvg(lawn, opts) {
     // under animateMotion the heading comes from rotate="auto", so the art
     // group carries the scale and nothing else
     const art = `<g transform="${route ? '' : `rotate(${n2(m.deg)}) `}`
-      + `scale(${GEOM.MOWER_SCALE})">` + mowerGroup(theme, route ? timing : null) + `</g>`;
+      + `scale(${GEOM.MOWER_SCALE})">${route ? engineBob(timing) : ''}`
+      + mowerGroup(theme, route ? timing : null) + `</g>`;
     if (!route) {
       parts.push(`<g id="mower" transform="translate(${n2(m.x)},${n2(m.y)})">${art}</g>`);
     } else {
@@ -592,41 +603,50 @@ function dressing(lawn, theme, o, seasonOf) {
   return out.join('');
 }
 
-/** The drive, in cells per second: down a pass, and round a U-turn. */
-const SPEED = 9;
-const TURN_SPEED = 5.5;
 /** The pause parked off the right edge, in seconds. */
 const HOLD = 1.6;
 /** How long a tuft takes to vanish once the blade reaches it, as a fraction. */
 const SNAP = 0.004;
+/** The room the drive needs on the right: two cells of omega, plus the nose. */
+const ANIM_PAD_R = 64;
 /** Four decimals: what every keyTimes/keyPoints in the picture is written to. */
 const f4 = (v) => v.toFixed(4);
+/** The smallest step this file will put between two keyTimes. */
+const TICK = 0.001;
 
 /**
  * One loop: drive the whole route, then hold off the edge while the year
- * regrows. The drive is a chain of legs (a pass, a U-turn, a pass...) that
- * the mower takes at two speeds, so the loop's clock is piecewise linear in
- * arc length. `keyPoints`/`keyTimes` spell that clock out for animateMotion;
- * `at()` runs a cut's arc length through the same clock, so a tuft vanishes
- * on the frame the drawn mower reaches it and the tracks reveal in step.
+ * regrows. The drive is a chain of legs the mower takes at its own speed -
+ * the planner stamps one on every span, slower through the turns and slower
+ * again through thick grass - so the loop's clock is piecewise linear in arc
+ * length. Spans that share a speed merge into one leg, or a weave knot every
+ * four cells would spell the clock out in three hundred keys.
+ *
+ * `keyPoints`/`keyTimes` spell that clock out for animateMotion; `at()` runs a
+ * cut's arc length through the same clock, so a tuft vanishes on the frame the
+ * drawn mower reaches it and the tracks reveal in step. A breather is a leg
+ * with no length: the same keyPoint twice, with time passing between them.
  * `drive` is where the driving ends, as a fraction of the loop.
  */
 function loopTiming(route) {
   const legs = [];
   for (const sp of route.curve) {
+    if (sp.kind === 'pause') { legs.push({ len: 0, secs: sp.secs, stop: true }); continue; }
     const len = spanLength(sp);
     const last = legs[legs.length - 1];
-    if (last && last.kind === sp.kind) last.len += len;
-    else legs.push({ kind: sp.kind, len });
+    if (last && !last.stop && last.speed === sp.speed) last.len += len;
+    else legs.push({ len, speed: sp.speed, stop: false });
   }
   const total = legs.reduce((s, l) => s + l.len, 0);
-  const secs = (l) => l.len / (l.kind === 'turn' ? TURN_SPEED : SPEED);
+  const secs = (l) => (l.stop ? l.secs : l.len / l.speed);
   const dur = legs.reduce((s, l) => s + secs(l), 0) + HOLD;
   const arcs = [0];
   const times = [0];
+  const stops = [];
   let s = 0;
   let t = 0;
   for (const l of legs) {
+    if (l.stop) stops.push(arcs.length - 1);
     s += l.len;
     t += secs(l);
     arcs.push(s / total);
@@ -649,9 +669,29 @@ function loopTiming(route) {
     dur, drive, at,
     // arc length in cells at every key, for anything measured along the path
     cells: kp.map((f) => f * route.length),
+    // when the mower stands still, as fractions of the loop
+    pauses: stops.map((i) => [kt[i], kt[i + 1]]),
     keyPoints: [...kp.map(f4), '1'].join(';'),
     keyTimes: [...kt.map(f4), '1'].join(';'),
   };
+}
+
+/**
+ * A `values`/`keyTimes` pair that is `1` all loop except inside each window,
+ * where it drops to 0. Windows arrive in order and never touch; the switch
+ * either side of one is a TICK wide, which is a frame and a half at 50 s.
+ */
+function windows(shut, dur) {
+  const values = ['1'];
+  const times = ['0'];
+  for (const [a, b] of shut) {
+    values.push('1', '0', '0', '1');
+    times.push(f4(a), f4(a + TICK), f4(b), f4(b + TICK));
+  }
+  values.push('1');
+  times.push('1');
+  return `<animate attributeName="opacity" values="${values.join(';')}"`
+    + ` keyTimes="${times.join(';')}" dur="${n2(dur)}s" repeatCount="indefinite"/>`;
 }
 
 /**
@@ -711,9 +751,12 @@ function mowerFx(timing, theme) {
   const puffs = [];
   for (let i = 0; i < 3; i++) {
     const begin = n2(i * 0.23);
+    // the plume used to trail 115 px behind, which was fine when every pass ran
+    // along a row: now a turn can point it at the caption or the legend, and a
+    // grey disc out there in the margin reads as a smudge, not as exhaust
     puffs.push(`<circle cx="-12" cy="-6" r="1.6" fill="#8C8A84" opacity="0">`
-      + loop('cx', '-12;-104', '0;1', 0.7, begin)
-      + loop('r', '1.6;7', '0;1', 0.7, begin)
+      + loop('cx', '-12;-56', '0;1', 0.7, begin)
+      + loop('r', '1.6;5', '0;1', 0.7, begin)
       + loop('opacity', '0.42;0', '0;1', 0.7, begin) + '</circle>');
   }
   const clippings = [];
@@ -732,7 +775,12 @@ function mowerFx(timing, theme) {
   }
   const gate = loop('opacity', '1;1;0;0',
     `0;${f4(timing.drive)};${f4(timing.drive + 0.002)};1`, n2(timing.dur));
-  return `<g opacity="1">${gate}${puffs.join('')}${clippings.join('')}</g>`;
+  // Nothing is being cut while the mower stands, so nothing comes out of the
+  // chute. The exhaust keeps puffing and the blade keeps spinning: it is a
+  // breather, not a stall.
+  const still = windows(timing.pauses, timing.dur);
+  return `<g opacity="1">${gate}${puffs.join('')}`
+    + `<g opacity="1">${still}${clippings.join('')}</g></g>`;
 }
 
 /**
@@ -775,8 +823,85 @@ function coverGroup(lawn, theme, o, route, timing, seasonOf) {
 }
 
 /**
+ * The engine shakes the whole rig, a degree either way at six times a second.
+ * A parked tractor must not shiver, and a transform cannot be gated by
+ * opacity, so the bob is counted out instead: enough repeats to cover the
+ * drive, then it ends (and `fill="remove"` puts the rig level again), and the
+ * `begin` list restarts it exactly one loop after it started.
+ */
+const BOB_DUR = 0.16;
+function engineBob(timing) {
+  const reps = Math.max(1, Math.floor((timing.drive * timing.dur) / BOB_DUR));
+  const rest = timing.dur - reps * BOB_DUR;
+  return `<animateTransform id="bob" attributeName="transform" type="rotate"`
+    + ` additive="sum" values="-1.2;1.2;-1.2" keyTimes="0;0.5;1" dur="${BOB_DUR}s"`
+    + ` repeatCount="${reps}" begin="0s;bob.end+${n2(rest)}s"/>`;
+}
+
+/**
+ * The top 3% of days grow a dandelion, and a dandelion that has gone to seed
+ * loses its clock the moment something touches it. Six seeds off the tile
+ * centre, blown up to four times the size and drifting as they fade: about a
+ * second of it, on the frame the blade arrives. Everything starts at opacity
+ * 0, so a renderer that ignores SMIL never sees them.
+ *
+ * Each seed is a stalk and a head, the way grass.js draws the clock standing
+ * on the tile. FLUFF is #FFFDF5: on GitHub's white a head on its own would be
+ * a burst of nothing, and the ink is what makes it a drawing on both themes.
+ */
+// One clock, turned a different way over each day: six near-identical circles
+// are not worth 300 bytes of path data apiece. And a cap, because "heroic" is
+// the top 3% by count and a year that ties every day at the top would pop 364
+// of these at once - which is confetti, not a highlight, and a quarter of a
+// megabyte of it.
+const SEED_MAX = 24;
+function seedGroup(lawn, theme, route, timing) {
+  const heroic = lawn.cells.filter((c) => !c.void && c.heroic);
+  if (!heroic.length) return '';
+  const best = heroic.length <= SEED_MAX ? heroic
+    : [...heroic].sort((a, b) => b.count - a.count || a.col - b.col || a.row - b.row)
+      .slice(0, SEED_MAX);
+  const rnd = rng(1721);
+  const heads = [];
+  const stalks = [];
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2 + rnd() * 0.7;
+    const r = 1.6 + rnd();
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    heads.push(circleD(x, y, 1));
+    stalks.push(lineD(x * 0.2, y * 0.2, x * 0.62, y * 0.62));
+  }
+  const groups = [`<defs><g id="clock"><path d="${stalks.join('')}" fill="none"`
+    + ` stroke="${theme.ink}" stroke-width="0.4"/>`
+    + `<path d="${heads.join('')}" fill="${FLUFF}"/></g></defs>`];
+  for (const c of best) {
+    // the burst has to finish inside the loop, and the last day of the year is
+    // cut a hair before the drive ends: share out whatever room is left
+    const t = timing.at(route.cuts.get(c.col * lawn.rows + c.row));
+    const room = (1 - t) / 3;
+    const t1 = t + Math.min(TICK, room);
+    const t2 = t1 + Math.min(0.02 - TICK, room);
+    const keys = `keyTimes="0;${f4(t)};${f4(t1)};${f4(t2)};1"`
+      + ` dur="${n2(timing.dur)}s" repeatCount="indefinite"`;
+    // the drift rides on the group, so it stays "up" whatever the clock's
+    // rotation is, and the scale comes last so it blows up about the tile
+    const puff = `<animateTransform attributeName="transform" type="translate"`
+      + ` additive="sum" values="0 0;0 0;0 0;0 -6;0 -6" ${keys}/>`
+      + `<animateTransform attributeName="transform" type="scale"`
+      + ` additive="sum" values="1;1;1;4;4" ${keys}/>`;
+    groups.push(`<g transform="translate(${n2(tileX(c.col) + CELL / 2)},`
+      + `${n2(tileY(c.row) + CELL / 2)})" opacity="0">`
+      + `<use href="#clock" transform="rotate(${n2(hash(c.col * 7 + c.row) * 360)})"/>`
+      + `<animate attributeName="opacity" values="0;0;1;0;0" ${keys}/>`
+      + `${puff}</g>`);
+  }
+  return `<g id="seeds" stroke-linecap="round">${groups.join('')}</g>`;
+}
+
+/**
  * Where the route begins, in page pixels. No heading: `rotate="auto"` takes
- * that off the path, and this point is off the picture anyway.
+ * that off the path, and the mower art faces +x, which is the way in.
  */
 function routeStart(route) {
   const a = route.waypoints[0];
@@ -787,7 +912,9 @@ function routeStart(route) {
  * The route as one `M0 0 C ...` path in page pixels, relative to the start:
  * animateMotion composes with the `transform` on the same element, so the
  * static translate doubles as the fallback position and the path must not
- * repeat it. One cubic per span, straight out of the planner.
+ * repeat it. One cubic per span, straight out of the planner - bar the
+ * breathers, which have no length: keyPoints are fractions of the path, so a
+ * stop is two keys at the same fraction and nothing to draw between them.
  */
 function motionPath(route, start) {
   const X = (x) => n2(px(x) - start.x);
@@ -795,6 +922,7 @@ function motionPath(route, start) {
   const first = route.curve[0].a;
   const out = [`M${X(first.x)} ${Y(first.z)}`];
   for (const sp of route.curve) {
+    if (sp.kind === 'pause') continue;
     out.push(`C${X(sp.c1.x)} ${Y(sp.c1.z)} ${X(sp.c2.x)} ${Y(sp.c2.z)} ${X(sp.b.x)} ${Y(sp.b.z)}`);
   }
   return out.join('');
