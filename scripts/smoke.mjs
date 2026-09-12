@@ -1102,26 +1102,33 @@ ok('the mower stops for a breather without stopping the clock',
 ok('the loop is between 40 and 55 seconds',
   Number(/dur="([\d.]+)s"/.exec(motion)[1]) > 40 && Number(/dur="([\d.]+)s"/.exec(motion)[1]) < 55,
   /dur="([\d.]+)s"/.exec(motion)[1]);
-// The omega turns swing two cells past the board and the entry runs in from
-// off the left edge; the picture has to hold all of it, mower and all. 17 px
-// is half the drawn rig, so the centre staying that far in keeps it in frame.
+// The omega turns swing two cells past the board, so the picture has to hold
+// the whole drive, mower and all: 17 px is half the drawn rig, so the centre
+// staying that far in keeps it in frame. The two ends are the exception and
+// are meant to be: the mower runs in from off the left edge and parks off the
+// right, and it is off the picture at both, which is where the loop hides the
+// join. So the check runs from the first sample on the board to the last.
 const [, , frameW] = /viewBox="([^"]*)"/.exec(animSvg)[1].split(' ').map(Number);
 const frameH = Number(/viewBox="([^"]*)"/.exec(animSvg)[1].split(' ')[3]);
 let strayed = '';
 for (let seed = 1; seed <= 12 && !strayed; seed++) {
+  const path = [];
   for (const sp of planRoute(svgLawn, seed).curve) {
-    for (let i = 0; i <= 24; i++) {
-      const p = bezAt(sp, i / 24);
-      const x = GEOM.OX + p.x * GEOM.PITCH - GEOM.GAP / 2;
-      const y = GEOM.OY + p.z * GEOM.PITCH - GEOM.GAP / 2;
-      if (x < 17 || x > frameW - 17 || y < GEOM.OY - 30 || y > frameH - 40) {
-        strayed = `seed ${seed}: ${x.toFixed(1)},${y.toFixed(1)}`;
-        break;
-      }
+    for (let i = 0; i <= 24; i++) path.push(bezAt(sp, i / 24));
+  }
+  const from = path.findIndex((p) => p.x >= 0);
+  let to = path.length - 1;
+  while (to > from && path[to].x > svgLawn.cols) to--;
+  for (let i = from; i <= to; i++) {
+    const x = GEOM.OX + path[i].x * GEOM.PITCH - GEOM.GAP / 2;
+    const y = GEOM.OY + path[i].z * GEOM.PITCH - GEOM.GAP / 2;
+    if (x < 17 || x > frameW - 17 || y < GEOM.OY - 30 || y > frameH - 40) {
+      strayed = `seed ${seed}: ${x.toFixed(1)},${y.toFixed(1)}`;
+      break;
     }
   }
 }
-ok('the mower never drives out of the picture', strayed === '', strayed);
+ok('every turn and pass keeps the mower in the picture', strayed === '', strayed);
 ok('the motion path is relative to the parked mower', /path="M0 0C/.test(motion));
 ok('the driven group carries no transform of its own',
   // animateMotion's matrix wraps around the element's own transform, so a

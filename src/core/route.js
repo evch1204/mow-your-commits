@@ -46,8 +46,13 @@ export const TURN_SPEED = 5.5;
  */
 const THICK = [1, 1, 1, 0.85, 0.7];
 
-/** Where the drive starts and parks, in cells past the board edges. */
-const ENTRY_X = -2;
+/**
+ * Where the drive starts and parks, in cells past the board edges. The entry
+ * is far enough out that the mower is off the picture at t=0: the honest still
+ * of an animation that starts there is the uncut lawn and no tractor, not a
+ * tractor parked on top of the Mon/Wed/Fri labels.
+ */
+const ENTRY_X = -4.5;
 const PARK_X = 2.5;
 /** The first weave knot: the run-in from the edge stays straight. */
 const RUN_IN = 3.5;
